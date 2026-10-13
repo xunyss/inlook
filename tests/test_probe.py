@@ -78,3 +78,13 @@ def test_log_written_line_by_line(tmp_path):
     run_probe(broken, log_dir=tmp_path)
     text = next(tmp_path.glob("probe-*.txt")).read_text(encoding="utf-8")
     assert "· Outlook 연결 ..." in text and "[E101]" in text
+
+
+def test_ctrl_c_stops_cleanly(tmp_path, capsys):
+    class Interrupted(FakeMailSource):
+        def measure(self, header):
+            raise KeyboardInterrupt
+
+    assert run_probe(lambda: Interrupted(NOW), log_dir=tmp_path) == 130
+    out = capsys.readouterr().out
+    assert "[STOP]" in out and "결과:" in out

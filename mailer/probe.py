@@ -13,6 +13,7 @@ COM 동작이 설계의 가정대로인지 **표본으로** 확인한다. 전체
 
 from __future__ import annotations
 
+import gc
 import shutil
 import sys
 import tempfile
@@ -133,7 +134,14 @@ def run_probe(
         log = (log_dir / f"probe-{started:%Y%m%d-%H%M%S}.txt").open("w", encoding="utf-8")
     try:
         out = Reporter(log)
-        code = _run(out, make_source, rows=rows, deep=deep, other_stores=other_stores, archive_root=archive_root)
+        try:
+            code = _run(out, make_source, rows=rows, deep=deep, other_stores=other_stores, archive_root=archive_root)
+        except KeyboardInterrupt:
+            # 창을 닫아 강제 종료하면 Outlook 쪽에 열린 객체가 남는다. Ctrl+C 는 진행 중인
+            # COM 호출이 끝난 뒤 여기로 와서, 객체를 정리하고 정상 종료한다.
+            out.line("[STOP] Ctrl+C 로 중단 — Outlook 객체를 정리하고 종료합니다")
+            code = 130
+        gc.collect()
         c = out.counts
         out.line("-" * 72)
         out.line(f" 결과: PASS {c[PASS]} / WARN {c[WARN]} / FAIL {c[FAIL]} / INFO {c[INFO]}")
