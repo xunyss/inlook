@@ -27,8 +27,9 @@ def main(argv: list[str] | None = None) -> int:
     probe = sub.add_parser("probe", help="VDI 자가진단")
     probe.add_argument("archive_root", nargs="?", type=Path, help="보존 경로 (쓰기 가능 여부 확인)")
     probe.add_argument("--fake", action="store_true", help="Outlook 대신 합성 데이터 사용 (Mac 개발용)")
-    probe.add_argument("--deep", type=int, default=10, help="상세 읽기 시간을 잴 메일 수 (기본 10)")
-    probe.add_argument("--max-rows", type=int, default=5000, help="폴더당 목록을 읽을 최대 행 수 (기본 5000)")
+    probe.add_argument("--rows", type=int, default=30, help="폴더당 읽어볼 목록 행 수 (기본 30)")
+    probe.add_argument("--deep", type=int, default=5, help="열어서 시간을 잴 메일 수 (기본 5)")
+    probe.add_argument("--stores", action="store_true", help="기본 사서함 외 저장소의 폴더도 확인")
 
     args = parser.parse_args(argv)
 
@@ -42,7 +43,12 @@ def main(argv: list[str] | None = None) -> int:
         else:
             make_source = _outlook_source
         return run_probe(
-            make_source, deep=args.deep, max_rows=args.max_rows, archive_root=args.archive_root, log_dir=LOG_DIR
+            make_source,
+            rows=args.rows,
+            deep=args.deep,
+            other_stores=args.stores,
+            archive_root=args.archive_root,
+            log_dir=LOG_DIR,
         )
     return 2
 

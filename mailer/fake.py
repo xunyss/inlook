@@ -69,16 +69,17 @@ class FakeMailSource:
         folder: FolderRef,
         since: datetime | None = None,
         limit: int | None = None,
+        oldest_first: bool = False,
     ) -> Iterator[MailHeader]:
         records = sorted(
             self._items.get((folder.store_index, folder.path), []),
             key=lambda r: r.header.received or datetime.min,
-            reverse=True,
+            reverse=not oldest_first,
         )
         count = 0
         for record in records:
             header = record.header
-            if since and header.received and header.received < since:
+            if since and not oldest_first and header.received and header.received < since:
                 break
             yield header
             count += 1

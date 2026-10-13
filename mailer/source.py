@@ -112,8 +112,9 @@ class MailSource(Protocol):
         folder: FolderRef,
         since: datetime | None = None,
         limit: int | None = None,
+        oldest_first: bool = False,
     ) -> Iterator[MailHeader]:
-        """수신 시각 내림차순. `since` 보다 오래된 항목이 나오면 멈춘다."""
+        """수신 시각 내림차순(oldest_first 면 오름차순). `since` 보다 오래된 항목이 나오면 멈춘다."""
         ...
 
     def open(self, header: MailHeader) -> MailRecord:

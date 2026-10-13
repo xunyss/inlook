@@ -180,6 +180,7 @@ class OutlookSource:
         folder: FolderRef,
         since: datetime | None = None,
         limit: int | None = None,
+        oldest_first: bool = False,
     ) -> Iterator[MailHeader]:
         # Restrict/Table 필터의 날짜 문자열은 로케일 의존이라 쓰지 않는다.
         # 최신순 정렬 후 기준일보다 오래된 행이 나오면 멈춘다.
@@ -189,7 +190,7 @@ class OutlookSource:
         columns.RemoveAll()
         for name in _TABLE_COLUMNS:
             columns.Add(name)
-        table.Sort("[ReceivedTime]", True)
+        table.Sort("[ReceivedTime]", not oldest_first)
         count = 0
         while not table.EndOfTable:
             values = table.GetNextRow().GetValues()
@@ -204,7 +205,7 @@ class OutlookSource:
                 message_id=str(values[6]) if values[6] else None,
                 search_key=_to_hex(values[7]),
             )
-            if since and header.received and header.received < since:
+            if since and not oldest_first and header.received and header.received < since:
                 break
             yield header
             count += 1
