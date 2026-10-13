@@ -5,7 +5,9 @@ COM 동작이 설계의 가정대로인지 **표본으로** 확인한다. 전체
 사용자가 강제 종료해야 했다.)
 
 결과는 사용자가 화면을 캡처하거나 붙여넣어 전달하므로 메일 내용·사람 이름·폴더명은
-출력하지 않는다. 저장소는 store#N, 폴더는 folder#NN 익명 ID 로만 표시한다.
+출력하지 않는다. 폴더는 folder#NN 익명 ID 로만 표시한다.
+
+기본 Exchange 사서함만 본다. 다른 저장소(문서관리 플러그인 등)는 목록조차 조회하지 않는다.
 
 도중에 멈추거나 종료해도 어디까지 진행됐는지 알 수 있게, COM 호출 전에 진행 표시(·)를
 먼저 찍고 로그 파일에도 한 줄씩 바로 기록한다.
@@ -25,7 +27,7 @@ from pathlib import Path
 from typing import TextIO
 
 from .errors import CODES
-from .source import EXCLUDED_KINDS, FolderRef, MailHeader, MailSource, StoreRef
+from .source import EXCLUDED_KINDS, FolderRef, MailHeader, MailSource
 
 PASS, WARN, FAIL, INFO = "PASS", "WARN", "FAIL", "INFO"
 RULE = "=" * 72
@@ -117,7 +119,6 @@ def run_probe(
     *,
     rows: int = 30,
     deep: int = 5,
-    other_stores: bool = False,
     archive_root: Path | None = None,
     log_dir: Path | None = None,
 ) -> int:
@@ -125,7 +126,6 @@ def run_probe(
 
     rows: 폴더당 읽어볼 목록 행 수 (표본)
     deep: 열어서 단계별 시간을 잴 메일 수
-    other_stores: 기본 사서함 외 저장소의 폴더도 들여다볼지
     """
     started = datetime.now()
     log = None
@@ -135,7 +135,7 @@ def run_probe(
     try:
         out = Reporter(log)
         try:
-            code = _run(out, make_source, rows=rows, deep=deep, other_stores=other_stores, archive_root=archive_root)
+            code = _run(out, make_source, rows=rows, deep=deep, archive_root=archive_root)
         except KeyboardInterrupt:
             # 창을 닫아 강제 종료하면 Outlook 쪽에 열린 객체가 남는다. Ctrl+C 는 진행 중인
             # COM 호출이 끝난 뒤 여기로 와서, 객체를 정리하고 정상 종료한다.
@@ -160,7 +160,6 @@ def _run(
     *,
     rows: int,
     deep: int,
-    other_stores: bool,
     archive_root: Path | None,
 ) -> int:
     redact = Redactor()
@@ -173,8 +172,8 @@ def _run(
 
     out.line(RULE)
     out.line(
-        f" mailer probe v3   {datetime.now():%Y-%m-%d %H:%M:%S}   "
-        f"(rows={rows}, deep={deep}, stores={'all' if other_stores else 'default'})"
+        f" mailer probe v4   {datetime.now():%Y-%m-%d %H:%M:%S}   "
+        f"(rows={rows}, deep={deep}, 기본 사서함만)"
     )
     out.line(RULE)
 
@@ -193,58 +192,35 @@ def _run(
         elapsed=time.perf_counter() - t,
     )
 
-    # P2 저장소와 폴더
+    # P2 기본 사서함 폴더
     t = time.perf_counter()
-    out.begin("저장소 목록")
+    out.begin("기본 사서함 폴더 목록")
     try:
-        stores = list(source.stores())
+        folders = list(source.folders())
     except Exception as exc:  # noqa: BLE001
-        out.result(WARN, "P2", CODES["E112"].title, code="E112", details=[err(exc)])
-        stores = []
-    if not any(s.is_default for s in stores):
-        stores = [StoreRef(index=1, is_default=True, kind="?", is_data_file=False), *stores]
-
-    folders: list[FolderRef] = []
-    for store in stores:
-        if not store.is_default and not other_stores:
-            continue
-        out.begin(f"store#{store.index} 폴더 목록")
-        try:
-            folders += list(source.folders(store))
-        except Exception as exc:  # noqa: BLE001
-            code = "E102" if store.is_default else "E112"
-            status = FAIL if store.is_default else WARN
-            out.result(status, "P2", CODES[code].title, code=code, details=[f"store#{store.index}: {err(exc)}"])
-            if store.is_default:
-                return failed()
+        out.result(FAIL, "P2", CODES["E102"].title, code="E102", details=[err(exc)])
+        return failed()
     for f in folders:
         redact.add(*f.path)
-    ids = {(f.store_index, f.path): f"folder#{i:02d}" for i, f in enumerate(folders, 1)}
+    ids = {f.path: f"folder#{i:02d}" for i, f in enumerate(folders, 1)}
 
     def fid(folder: FolderRef) -> str:
-        return ids[(folder.store_index, folder.path)]
+        return ids[folder.path]
 
-    details = []
-    for store in stores:
-        flags = " ".join(x for x in ("기본" if store.is_default else "", "데이터파일" if store.is_data_file else "") if x)
-        mine = [f for f in folders if f.store_index == store.index]
-        if store.is_default or other_stores:
-            summary = (
-                f"폴더 {len(mine)} (메일 {sum(1 for f in mine if f.is_mail)}), "
-                f"메일 {_fmt(sum(f.item_count for f in mine if f.is_mail and f.item_count > 0))}"
-            )
-        else:
-            summary = "폴더 조회 생략 (probe.bat <경로> --stores 로 확인)"
-        details.append(f"store#{store.index} {store.kind:12} {flags:10} {summary}")
-    out.result(PASS, "P2", f"저장소 {len(stores)}개", details=details, elapsed=time.perf_counter() - t)
-
+    out.result(
+        PASS, "P2", "기본 사서함 폴더",
+        details=[
+            f"폴더 {len(folders)} (메일 {sum(1 for f in folders if f.is_mail)}), "
+            f"메일 {_fmt(sum(f.item_count for f in folders if f.is_mail and f.item_count > 0))}"
+        ],
+        elapsed=time.perf_counter() - t,
+    )
     inaccessible = [fid(f) for f in folders if f.item_count < 0]
     if inaccessible:
         out.result(WARN, "P2", CODES["E103"].title, code="E103", details=[", ".join(inaccessible)])
 
     # P3 폴더별 표본 목록 (Table API). 최신 rows 행 + 가장 오래된 1행만 읽는다.
-    default_index = next(s.index for s in stores if s.is_default)
-    sampled = [f for f in folders if _is_target(f) or (f.store_index != default_index and f.is_mail and f.item_count > 0)]
+    sampled = [f for f in folders if _is_target(f)]
     headers: dict[str, list[MailHeader]] = {}
     oldest: dict[str, datetime | None] = {}
     read_errors: list[str] = []
@@ -271,7 +247,7 @@ def _run(
         return f"{_day(oldest.get(fid(folder)))} ~ {_day(newest)}"
 
     details = [
-        f"{fid(f)}  s{f.store_index}  {(f.kind or '-'):8} d{f.depth}  {'mail' if f.is_mail else 'other':5} "
+        f"{fid(f)}  {(f.kind or '-'):8} d{f.depth}  {'mail' if f.is_mail else 'other':5} "
         f"{_fmt(f.item_count):>7}  {span(f)}{'  (수집대상)' if _is_target(f) else ''}"
         for f in folders
         if f.item_count != 0
@@ -292,7 +268,7 @@ def _run(
 
     # P4 중복 판단 키 분석 (표본 기준)
     targets = [f for f in folders if _is_target(f)]
-    group_of = {fid(f): _group(f, default_index) for f in sampled}
+    group_of = {fid(f): f.kind or "user-folder" for f in sampled}
     n = len(all_rows)
     with_id = sum(1 for h in all_rows if h.message_id)
     details = [
@@ -383,12 +359,6 @@ def _run(
         _probe_save(out, source, candidate, archive_root, err)
 
     return failed()
-
-
-def _group(folder: FolderRef, default_index: int) -> str:
-    if folder.store_index != default_index:
-        return f"store#{folder.store_index}"
-    return folder.kind or "user-folder"
 
 
 def _missing_by(pairs: Iterable[tuple[str, MailHeader]]) -> str:

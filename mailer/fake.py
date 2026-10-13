@@ -3,7 +3,7 @@
 실제 환경에서 문제가 될 만한 경우를 일부러 넣어둔다:
 같은 분·같은 제목, 아주 긴 제목, 파일명 금지 문자, 빈 제목, Message-ID 없음
 (보낸 메일 등), 회의 요청, 배달 실패 보고서, 아카이브 바로가기(stub),
-깊은 하위 폴더, 일정 폴더, 두 번째 저장소(아카이브)에 있는 오래된 메일.
+깊은 하위 폴더, 일정 폴더.
 """
 
 from __future__ import annotations
@@ -21,7 +21,6 @@ from .source import (
     FolderRef,
     MailHeader,
     MailRecord,
-    StoreRef,
 )
 
 _PEOPLE = [
@@ -43,12 +42,8 @@ class FakeMailSource:
     def __init__(self, now: datetime | None = None, *, fail_save: bool = False) -> None:
         self.now = (now or datetime.now()).replace(second=0, microsecond=0)
         self.fail_save = fail_save
-        self._stores = [
-            StoreRef(index=1, is_default=True, kind="primary", is_data_file=False),
-            StoreRef(index=2, is_default=False, kind="not-exchange", is_data_file=True),
-        ]
-        self._folders: dict[int, list[FolderRef]] = {1: [], 2: []}
-        self._items: dict[tuple[int, tuple[str, ...]], list[MailRecord]] = {}
+        self._folders: list[FolderRef] = []
+        self._items: dict[tuple[str, ...], list[MailRecord]] = {}
         self._by_id: dict[str, MailRecord] = {}
         self._seq = 0
         self._build()
@@ -58,11 +53,8 @@ class FakeMailSource:
     def describe(self) -> dict[str, str]:
         return {"python": sys.version.split()[0], "source": "fake", "mode": "online"}
 
-    def stores(self) -> Iterator[StoreRef]:
-        yield from self._stores
-
-    def folders(self, store: StoreRef | None = None) -> Iterator[FolderRef]:
-        yield from self._folders[store.index if store else 1]
+    def folders(self) -> Iterator[FolderRef]:
+        yield from self._folders
 
     def headers(
         self,
@@ -72,7 +64,7 @@ class FakeMailSource:
         oldest_first: bool = False,
     ) -> Iterator[MailHeader]:
         records = sorted(
-            self._items.get((folder.store_index, folder.path), []),
+            self._items.get(folder.path, []),
             key=lambda r: r.header.received or datetime.min,
             reverse=not oldest_first,
         )
@@ -100,9 +92,9 @@ class FakeMailSource:
 
     # --- 합성 데이터 ---
 
-    def _folder(self, store: int, path: tuple[str, ...], kind: str | None = None, is_mail: bool = True) -> None:
-        self._folders[store].append(FolderRef(path=path, item_count=0, is_mail=is_mail, kind=kind, store_index=store))
-        self._items[(store, path)] = []
+    def _folder(self, path: tuple[str, ...], kind: str | None = None, is_mail: bool = True) -> None:
+        self._folders.append(FolderRef(path=path, item_count=0, is_mail=is_mail, kind=kind))
+        self._items[path] = []
 
     def _mail(
         self,
@@ -110,7 +102,6 @@ class FakeMailSource:
         days_ago: float,
         subject: str,
         *,
-        store: int = 1,
         message_class: str = "IPM.Note",
         message_id: bool = True,
         sender: int | None = None,
@@ -125,7 +116,7 @@ class FakeMailSource:
         body = "아카이브된 항목입니다." if stub else f"안녕하세요, {name}입니다.\n번호: {n}\n감사합니다."
         header = MailHeader(
             entry_id=f"FAKEENTRY{n:08d}",
-            store_id=f"FAKESTORE{store}",
+            store_id="FAKESTORE",
             message_class=message_class,
             subject=subject,
             sender_name=name,
@@ -144,7 +135,7 @@ class FakeMailSource:
             html_body="" if stub else _HTML.format(name=name, n=n),
             attachments=attachments or [],
         )
-        self._items[(store, path)].append(record)
+        self._items[path].append(record)
         self._by_id[header.entry_id] = record
         return record
 
@@ -156,17 +147,15 @@ class FakeMailSource:
         sent = ("보낸 편지함",)
         keep = ("보관",)
 
-        self._folder(1, inbox, KIND_INBOX)
-        self._folder(1, proj)
-        self._folder(1, minutes)
-        self._folder(1, news)
-        self._folder(1, sent, KIND_SENT)
-        self._folder(1, ("지운 편지함",), KIND_DELETED)
-        self._folder(1, ("정크 메일",), KIND_JUNK)
-        self._folder(1, ("일정",), is_mail=False)
-        self._folder(1, keep)
-        self._folder(2, inbox)
-        self._folder(2, proj)
+        self._folder(inbox, KIND_INBOX)
+        self._folder(proj)
+        self._folder(minutes)
+        self._folder(news)
+        self._folder(sent, KIND_SENT)
+        self._folder(("지운 편지함",), KIND_DELETED)
+        self._folder(("정크 메일",), KIND_JUNK)
+        self._folder(("일정",), is_mail=False)
+        self._folder(keep)
 
         # 평범한 메일: 기본 사서함에는 최근 30일 안쪽만 남아 있다
         for i in range(30):
@@ -194,20 +183,7 @@ class FakeMailSource:
             self._mail(inbox, 25 + i, f"바로가기 {i}", message_class="IPM.Note.EnterpriseVault.Shortcut")
         self._mail(keep, 200, "1년 가까이 된 보관 메일")
 
-        # 두 번째 저장소: 1~3개월 전 메일
-        for i in range(40):
-            self._mail(inbox, 31 + i * 1.5, f"지난달 메일 {i}", store=2, message_id=i % 4 != 0)
-        for i in range(10):
-            self._mail(proj, 35 + i * 5, f"[프로젝트A] 지난 현황 {i}", store=2)
-
-        for store, folders in self._folders.items():
-            self._folders[store] = [
-                FolderRef(
-                    path=f.path,
-                    item_count=len(self._items[(store, f.path)]),
-                    is_mail=f.is_mail,
-                    kind=f.kind,
-                    store_index=store,
-                )
-                for f in folders
-            ]
+        self._folders = [
+            FolderRef(path=f.path, item_count=len(self._items[f.path]), is_mail=f.is_mail, kind=f.kind)
+            for f in self._folders
+        ]

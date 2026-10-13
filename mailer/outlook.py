@@ -2,6 +2,9 @@
 
 이 파일은 Mac 에서 테스트할 수 없으므로 최대한 얇게 유지한다.
 로직은 collector/probe 쪽에 두고, 여기서는 COM 값을 source 타입으로 옮기기만 한다.
+
+ns.Stores 나 다른 저장소에는 접근하지 않는다. 기본 받은 편지함에서 출발해
+그 사서함 안의 폴더만 돈다. (문서관리 플러그인 저장소를 건드리면 Outlook 이 죽는다.)
 """
 
 from __future__ import annotations
@@ -27,7 +30,6 @@ from .source import (
     FolderRef,
     MailHeader,
     MailRecord,
-    StoreRef,
 )
 
 # OlDefaultFolders
@@ -51,8 +53,6 @@ _CONNECTION_MODES = {
     700: "cached-full",
     800: "online",
 }
-# OlExchangeStoreType
-_STORE_TYPES = {0: "primary", 1: "mailbox", 2: "public", 3: "not-exchange", 4: "additional"}
 
 OL_MAIL_ITEM = 0  # OlItemType: Folder.DefaultItemType 가 이 값이면 메일 폴더
 OL_USER_ITEMS = 0  # OlTableContents
@@ -119,7 +119,6 @@ class OutlookSource:
         self.ns = self.app.GetNamespace("MAPI")
         inbox = self.ns.GetDefaultFolder(6)
         self._default_root = inbox.Parent
-        self._default_store_id = str(_get(inbox, "StoreID", ""))
         self._kinds: dict[str, str] = {}
         for number, kind in _DEFAULT_FOLDERS.items():
             try:
@@ -141,24 +140,10 @@ class OutlookSource:
             "mode": _CONNECTION_MODES.get(mode, str(mode)),
         }
 
-    def stores(self) -> Iterator[StoreRef]:
-        for index, store in enumerate(self.ns.Stores, 1):
-            yield StoreRef(
-                index=index,
-                is_default=str(_get(store, "StoreID", "")) == self._default_store_id,
-                kind=_STORE_TYPES.get(_get(store, "ExchangeStoreType"), "?"),
-                is_data_file=bool(_get(store, "IsDataFileStore", False)),
-                handle=store,
-            )
+    def folders(self) -> Iterator[FolderRef]:
+        yield from self._walk(self._default_root, ())
 
-    def folders(self, store: StoreRef | None = None) -> Iterator[FolderRef]:
-        if store is None or store.is_default:
-            root, index = self._default_root, (store.index if store else 1)
-        else:
-            root, index = store.handle.GetRootFolder(), store.index
-        yield from self._walk(root, (), index)
-
-    def _walk(self, folder, path: tuple[str, ...], store_index: int) -> Iterator[FolderRef]:
+    def _walk(self, folder, path: tuple[str, ...]) -> Iterator[FolderRef]:
         for sub in folder.Folders:
             sub_path = path + (str(_get(sub, "Name", "?")),)
             try:
@@ -170,10 +155,9 @@ class OutlookSource:
                 item_count=count,
                 is_mail=_get(sub, "DefaultItemType") == OL_MAIL_ITEM,
                 kind=self._kinds.get(_get(sub, "EntryID", "")),
-                store_index=store_index,
                 handle=sub,
             )
-            yield from self._walk(sub, sub_path, store_index)
+            yield from self._walk(sub, sub_path)
 
     def headers(
         self,

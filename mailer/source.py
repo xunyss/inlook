@@ -3,6 +3,9 @@
 수집기·probe·뷰어는 이 모듈의 타입만 알고, Outlook COM 은 모른다.
 VDI 에서는 OutlookSource, Mac 에서는 FakeMailSource 를 끼운다.
 
+**기본 Exchange 사서함만 다룬다.** Outlook 에 붙은 다른 저장소(문서관리 플러그인 등)는
+목록조차 조회하지 않는다. 다른 저장소를 건드렸다가 Outlook 이 두 번 죽었다.
+
 VDI 의 Outlook 은 온라인 모드라 속성을 읽을 때마다 서버를 다녀온다. 그래서
 - 목록은 headers() (Outlook Table API) 로 필요한 열만 한 번에 읽고
 - 본문·.msg 저장이 필요한 항목만 open() 으로 연다.
@@ -36,17 +39,6 @@ def is_stub(message_class: str) -> bool:
 
 
 @dataclass(frozen=True)
-class StoreRef:
-    """Outlook 에 연결된 저장소(사서함, 아카이브, 데이터 파일 등). 이름은 갖지 않는다."""
-
-    index: int
-    is_default: bool
-    kind: str  # primary / mailbox / public / additional / not-exchange / ?
-    is_data_file: bool
-    handle: object = field(default=None, compare=False, repr=False)
-
-
-@dataclass(frozen=True)
 class FolderRef:
     """폴더 하나. `handle` 은 소스 구현이 쓰는 내부 값이다."""
 
@@ -54,7 +46,6 @@ class FolderRef:
     item_count: int  # -1: 접근 불가
     is_mail: bool  # 메일 폴더인지 (일정·연락처 폴더 제외용)
     kind: str | None = None  # KIND_* 또는 None (사용자 폴더)
-    store_index: int = 1
     handle: object = field(default=None, compare=False, repr=False)
 
     @property
@@ -101,10 +92,8 @@ class MailSource(Protocol):
         """환경 정보 (버전, 연결 모드 등). 개인정보를 넣지 않는다."""
         ...
 
-    def stores(self) -> Iterator[StoreRef]: ...
-
-    def folders(self, store: StoreRef | None = None) -> Iterator[FolderRef]:
-        """저장소의 모든 폴더를 깊이 우선으로. store 가 None 이면 기본 사서함."""
+    def folders(self) -> Iterator[FolderRef]:
+        """기본 사서함의 모든 폴더를 깊이 우선으로."""
         ...
 
     def headers(
