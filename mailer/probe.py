@@ -1,7 +1,8 @@
 """VDI 자가진단.
 
-COM 동작이 설계의 가정대로인지 확인한다. 결과는 사용자가 화면을 캡처해 전달하므로
-메일 내용·사람 이름·폴더명은 출력하지 않는다. 폴더는 folder#NN 익명 ID 로만 표시한다.
+COM 동작이 설계의 가정대로인지 확인한다. 결과는 사용자가 화면을 캡처하거나 붙여넣어
+전달하므로 메일 내용·사람 이름·폴더명은 출력하지 않는다.
+저장소는 store#N, 폴더는 folder#NN 익명 ID 로만 표시한다. 날짜·개수는 출력한다.
 """
 
 from __future__ import annotations
@@ -10,23 +11,25 @@ import shutil
 import sys
 import tempfile
 import time
-from collections import Counter
-from collections.abc import Callable
+from collections import Counter, defaultdict
+from collections.abc import Callable, Iterable
 from datetime import datetime
 from pathlib import Path
 
 from .errors import CODES
-from .source import EXCLUDED_KINDS, FolderRef, MailRecord, MailSource
+from .source import EXCLUDED_KINDS, FolderRef, MailHeader, MailSource, StoreRef
 
 PASS, WARN, FAIL, INFO = "PASS", "WARN", "FAIL", "INFO"
-RULE = "=" * 64
+RULE = "=" * 72
 
 MESSAGE_ID_WARN_RATIO = 0.95
 WINDOWS_MAX_PATH = 260
+SINCE_CHECK_FOLDERS = 5
+MEASURE_STEPS = ("open", "basic", "sender_smtp", "body", "html", "attachments")
 
 
 class Redactor:
-    """오류 메시지에 섞여 들어올 수 있는 폴더명·제목을 가린다."""
+    """오류 메시지에 섞여 들어올 수 있는 폴더명·제목·이름을 가린다."""
 
     def __init__(self) -> None:
         self._secrets: set[str] = set()
@@ -61,10 +64,8 @@ class Reporter:
     ) -> None:
         self.counts[status] += 1
         suffix = f"  ({elapsed:.1f}s)" if elapsed is not None else ""
-        head = f"[{status}] {step} {title}{suffix}"
-        if code:
-            head = f"[{status}] {step} [{code}] {title}{suffix}"
-        self.line(head)
+        tag = f" [{code}]" if code else ""
+        self.line(f"[{status}] {step}{tag} {title}{suffix}")
         for detail in details or []:
             self.line(f"       {detail}")
         if code and status in (WARN, FAIL):
@@ -80,10 +81,30 @@ def _fmt(n: int) -> str:
     return f"{n:,}"
 
 
+def _day(value: datetime | None) -> str:
+    return f"{value:%Y-%m-%d}" if value else "----------"
+
+
+def _span(headers: list[MailHeader]) -> str:
+    times = [h.received for h in headers if h.received]
+    if not times:
+        return "-"
+    return f"{_day(min(times))} ~ {_day(max(times))}"
+
+
+def _ratio(part: int, whole: int) -> str:
+    return f"{part}/{whole} ({part / whole:.0%})" if whole else "0/0"
+
+
+def _is_target(folder: FolderRef) -> bool:
+    return folder.is_mail and folder.kind not in EXCLUDED_KINDS and folder.item_count > 0
+
+
 def run_probe(
     make_source: Callable[[], MailSource],
     *,
-    sample: int = 100,
+    deep: int = 10,
+    max_rows: int = 5000,
     archive_root: Path | None = None,
     log_dir: Path | None = None,
 ) -> int:
@@ -95,147 +116,259 @@ def run_probe(
         return redact(describe_exc(exc))
 
     started = datetime.now()
-
     out.line(RULE)
-    out.line(f" mailer probe   {started:%Y-%m-%d %H:%M:%S}   (sample={sample})")
+    out.line(f" mailer probe v2   {started:%Y-%m-%d %H:%M:%S}   (deep={deep}, max_rows={max_rows})")
     out.line(RULE)
 
     # P1 연결
     t = time.perf_counter()
     try:
         source = make_source()
+        info = source.describe()
     except Exception as exc:  # noqa: BLE001 — 어떤 실패든 화면에 남긴다
         out.result(FAIL, "P1", CODES["E101"].title, code="E101", details=[err(exc)])
         return _finish(out, log_dir, started)
-    info = " / ".join(f"{k} {v}" for k, v in source.describe().items())
-    out.result(PASS, "P1", "Outlook 연결", details=[info], elapsed=time.perf_counter() - t)
+    out.result(
+        PASS, "P1", "Outlook 연결",
+        details=[" / ".join(f"{k} {v}" for k, v in info.items())],
+        elapsed=time.perf_counter() - t,
+    )
 
-    # P2 폴더 순회
+    # P2 저장소와 폴더
     t = time.perf_counter()
     try:
-        folders = list(source.folders())
+        stores = list(source.stores())
     except Exception as exc:  # noqa: BLE001
-        out.result(FAIL, "P2", CODES["E102"].title, code="E102", details=[err(exc)])
-        return _finish(out, log_dir, started)
-    ids = {f.path: f"folder#{i:02d}" for i, f in enumerate(folders, 1)}
+        out.result(WARN, "P2", CODES["E112"].title, code="E112", details=[err(exc)])
+        stores = []
+    if not any(s.is_default for s in stores):
+        stores = [StoreRef(index=1, is_default=True, kind="?", is_data_file=False), *stores]
+
+    folders: list[FolderRef] = []
+    for store in stores:
+        try:
+            folders += list(source.folders(store))
+        except Exception as exc:  # noqa: BLE001
+            code = "E102" if store.is_default else "E112"
+            status = FAIL if store.is_default else WARN
+            out.result(status, "P2", CODES[code].title, code=code, details=[f"store#{store.index}: {err(exc)}"])
+            if store.is_default:
+                return _finish(out, log_dir, started)
     for f in folders:
         redact.add(*f.path)
-    mail_folders = [f for f in folders if f.is_mail]
-    targets = [f for f in mail_folders if f.kind not in EXCLUDED_KINDS and f.item_count > 0]
-    inaccessible = [f for f in folders if f.item_count < 0]
-    total_items = sum(f.item_count for f in mail_folders if f.item_count > 0)
-    max_name = max((len("\\".join(f.path)) for f in folders), default=0)
-    details = [
-        f"폴더 {len(folders)}개 (메일 {len(mail_folders)}, 수집 대상 {len(targets)}), "
-        f"메일 항목 {_fmt(total_items)}개, 최대 깊이 {max((f.depth for f in folders), default=0)}, "
-        f"가장 긴 폴더 경로 {max_name}자",
-    ]
-    details += [
-        f"{ids[f.path]}  {(f.kind or '-'):8} d{f.depth}  {'mail' if f.is_mail else 'other':5} {_fmt(f.item_count):>8}"
-        for f in folders
-    ]
-    out.result(PASS, "P2", "폴더 순회", details=details, elapsed=time.perf_counter() - t)
-    if inaccessible:
-        out.result(
-            WARN, "P2", CODES["E103"].title, code="E103",
-            details=[", ".join(ids[f.path] for f in inaccessible)],
-        )
+    ids = {(f.store_index, f.path): f"folder#{i:02d}" for i, f in enumerate(folders, 1)}
 
-    # P3 항목 샘플 읽기
-    t = time.perf_counter()
-    samples: dict[tuple[str, ...], list[MailRecord]] = {}
+    def fid(folder: FolderRef) -> str:
+        return ids[(folder.store_index, folder.path)]
+
+    # 목록은 Table API 로 모든 메일 폴더를 읽는다 (빈 폴더 제외)
+    headers: dict[str, list[MailHeader]] = {}
+    truncated: set[str] = set()
     read_errors: list[str] = []
-    for i, folder in enumerate(targets, 1):
-        _progress(f"  읽는 중 {ids[folder.path]} ({i}/{len(targets)})")
+    mail_folders = [f for f in folders if f.is_mail and f.item_count > 0]
+    t_rows = time.perf_counter()
+    for i, folder in enumerate(mail_folders, 1):
+        _progress(f"  목록 읽는 중 {fid(folder)} ({i}/{len(mail_folders)})")
         try:
-            records = list(source.items(folder, limit=sample))
+            rows = list(source.headers(folder, limit=max_rows))
         except Exception as exc:  # noqa: BLE001
-            read_errors.append(f"{ids[folder.path]}: {err(exc)}")
+            read_errors.append(f"{fid(folder)}: {err(exc)}")
             continue
-        for r in records:
-            redact.add(r.subject, r.sender_name, r.sender_email)
-        samples[folder.path] = records
+        for h in rows:
+            redact.add(h.subject, h.sender_name)
+        headers[fid(folder)] = rows
+        if folder.item_count > len(rows):
+            truncated.add(fid(folder))
     _progress("")
-    elapsed = time.perf_counter() - t
-    all_records = [r for rs in samples.values() for r in rs]
-    n = len(all_records)
-    classes = Counter(r.message_class for r in all_records)
-    with_id = sum(1 for r in all_records if r.message_id)
-    stubs = sum(1 for r in all_records if r.is_stub)
-    no_time = sum(1 for r in all_records if r.received is None)
-    rate = n / elapsed if elapsed > 0 else 0.0
+    rows_elapsed = time.perf_counter() - t_rows
+
+    details = []
+    for store in stores:
+        mine = [f for f in folders if f.store_index == store.index]
+        rows = [h for f in mine for h in headers.get(fid(f), [])]
+        flags = ["기본" if store.is_default else "", "데이터파일" if store.is_data_file else ""]
+        details.append(
+            f"store#{store.index} {store.kind:12} {' '.join(x for x in flags if x):10} "
+            f"폴더 {len(mine)} (메일 {sum(1 for f in mine if f.is_mail)}), "
+            f"메일 {_fmt(sum(f.item_count for f in mine if f.is_mail and f.item_count > 0))}, "
+            f"수신일 {_span(rows)}"
+        )
+    out.result(PASS, "P2", f"저장소 {len(stores)}개", details=details, elapsed=time.perf_counter() - t)
+
+    inaccessible = [fid(f) for f in folders if f.item_count < 0]
+    if inaccessible:
+        out.result(WARN, "P2", CODES["E103"].title, code="E103", details=[", ".join(inaccessible)])
+
+    # P3 폴더 목록 (빈 폴더 생략)
     details = [
-        f"항목 {_fmt(n)}개 읽음, 초당 {rate:.0f}개 → 전체 {_fmt(total_items)}개 예상 {total_items / rate / 60:.1f}분"
-        if rate else f"항목 {_fmt(n)}개 읽음",
-        f"Message-ID 있음 {_fmt(with_id)}/{_fmt(n)}, 수신시각 없음 {_fmt(no_time)}, "
-        f"첨부 있음 {_fmt(sum(1 for r in all_records if r.attachments))}, "
-        f"가장 긴 제목 {max((len(r.subject) for r in all_records), default=0)}자",
-        "MessageClass: " + ", ".join(f"{c or '(empty)'}={k}" for c, k in classes.most_common()),
+        f"{fid(f)}  s{f.store_index}  {(f.kind or '-'):8} d{f.depth}  {'mail' if f.is_mail else 'other':5} "
+        f"{_fmt(f.item_count):>7}  {_span(headers.get(fid(f), [])) if f.is_mail else ''}"
+        f"{'  (수집대상)' if _is_target(f) else ''}"
+        for f in folders
+        if f.item_count != 0
     ]
-    out.result(PASS if not read_errors else FAIL, "P3", "항목 읽기", details=details, elapsed=elapsed)
+    empty = sum(1 for f in folders if f.item_count == 0)
+    details.append(f"(빈 폴더 {empty}개 생략)")
+    out.result(INFO, "P3", "폴더별 항목 수와 수신일 범위", details=details)
+
+    # P4 목록 읽기(Table API)와 키 분석
+    targets = [f for f in folders if _is_target(f)]
+    target_rows = [h for f in targets for h in headers.get(fid(f), [])]
+    all_rows = [h for rows in headers.values() for h in rows]
+    rate = len(all_rows) / rows_elapsed if rows_elapsed > 0 else 0.0
+    details = [f"{_fmt(len(all_rows))}행 읽음, 초당 {rate:.0f}행" if rate else f"{_fmt(len(all_rows))}행 읽음"]
+    if truncated:
+        details.append(f"max_rows 에서 잘림: {', '.join(sorted(truncated))}")
+    out.result(
+        PASS if not read_errors else FAIL, "P4", "목록 읽기 (Table API)",
+        details=details, elapsed=rows_elapsed,
+    )
     if read_errors:
-        out.result(FAIL, "P3", CODES["E104"].title, code="E104", details=read_errors)
+        out.result(FAIL, "P4", CODES["E104"].title, code="E104", details=read_errors)
+
+    n = len(target_rows)
+    with_id = sum(1 for h in target_rows if h.message_id)
+    details = [
+        f"수집 대상 {_fmt(n)}건 기준",
+        "MessageClass: " + ", ".join(f"{c or '(empty)'}={k}" for c, k in Counter(h.message_class for h in target_rows).most_common()),
+        f"Message-ID 있음 {_ratio(with_id, n)}",
+        "  없는 항목 - 종류별: " + _missing_by(target_rows, lambda h: h.message_class),
+    ]
+    default_index = next(s.index for s in stores if s.is_default)
+    group_of = {fid(f): _group(f, default_index) for f in targets}
+    details.append(
+        "  없는 항목 - 폴더별: "
+        + _missing_by(((group_of[k], h) for k, rows in headers.items() if k in group_of for h in rows), None)
+    )
+    details.append(f"SearchKey 있음 {_ratio(sum(1 for h in target_rows if h.search_key), n)}")
+    details.append("키별 중복 그룹 수 (같은 키를 가진 항목 묶음):")
+    for name, key in _KEYS.items():
+        values = [key(h) for h in target_rows]
+        present = [v for v in values if v]
+        dupes = sum(1 for c in Counter(present).values() if c > 1)
+        details.append(f"  {name:22} 값 있음 {_ratio(len(present), n):18} 중복 그룹 {dupes}")
+    out.result(INFO, "P4", "중복 판단 키 분석", details=details)
     if n and with_id / n < MESSAGE_ID_WARN_RATIO:
-        out.result(WARN, "P3", CODES["E106"].title, code="E106", details=[f"{with_id / n:.0%} 만 있음"])
+        out.result(WARN, "P4", CODES["E106"].title, code="E106", details=[f"{with_id / n:.0%} 만 있음"])
+    stubs = sum(1 for h in all_rows if h.is_stub)
     if stubs:
-        out.result(WARN, "P3", CODES["E107"].title, code="E107", details=[f"{_fmt(stubs)}개"])
+        out.result(WARN, "P4", CODES["E107"].title, code="E107", details=[f"{_fmt(stubs)}개"])
 
-    unordered = [ids[p] for p, rs in samples.items() if not _is_descending(rs)]
-    if unordered:
-        out.result(FAIL, "P3", CODES["E105"].title, code="E105", details=[", ".join(unordered)])
-    else:
-        out.result(PASS, "P3", "수신 시각 내림차순 정렬")
-
-    # P4 증분 조회: 샘플 안에 다 들어오는 작은 폴더로 전체 개수와 since 경계를 확인
+    # P5 정렬과 증분 조회
     t = time.perf_counter()
-    checked, mismatches = 0, []
+    unordered = [k for k, rows in headers.items() if not _is_descending(rows)]
+    mismatches: list[str] = []
+    checked = 0
     for folder in targets:
-        records = samples.get(folder.path)
-        if not records or folder.item_count > sample or len(records) < 2:
+        rows = headers.get(fid(folder), [])
+        if len(rows) < 2 or fid(folder) in truncated:
+            continue
+        times = [h.received for h in rows if h.received]
+        if not times:
             continue
         checked += 1
-        problems = []
-        if len(records) != folder.item_count:
-            problems.append(f"전체 {folder.item_count} / 읽음 {len(records)}")
-        times = [r.received for r in records if r.received]
-        if times:
-            since = times[len(times) // 2]
-            expected = sum(1 for x in times if x >= since)
-            got = sum(1 for r in source.items(folder, since=since) if r.received)
-            if got != expected:
-                problems.append(f"since 기대 {expected} / 실제 {got}")
-        if problems:
-            mismatches.append(f"{ids[folder.path]}: " + ", ".join(problems))
-        if checked >= 5:
+        since = times[len(times) // 2]
+        expected = sum(1 for x in times if x >= since)
+        try:
+            got = sum(1 for h in source.headers(folder, since=since) if h.received)
+        except Exception as exc:  # noqa: BLE001
+            mismatches.append(f"{fid(folder)}: {err(exc)}")
+            continue
+        if got != expected:
+            mismatches.append(f"{fid(folder)}: since 기대 {expected} / 실제 {got}")
+        if checked >= SINCE_CHECK_FOLDERS:
             break
+    elapsed = time.perf_counter() - t
+    if unordered:
+        out.result(FAIL, "P5", CODES["E105"].title, code="E105", details=[", ".join(unordered)], elapsed=elapsed)
     if mismatches:
-        out.result(FAIL, "P4", CODES["E108"].title, code="E108", details=mismatches,
-                   elapsed=time.perf_counter() - t)
-    elif checked:
-        out.result(PASS, "P4", f"증분 조회 ({checked}개 폴더 확인)", elapsed=time.perf_counter() - t)
+        out.result(FAIL, "P5", CODES["E108"].title, code="E108", details=mismatches, elapsed=elapsed)
+    if not unordered and not mismatches:
+        out.result(PASS, "P5", f"정렬·증분 조회 ({checked}개 폴더)", elapsed=elapsed)
+
+    # P6 상세 읽기 단계별 시간
+    picks = _spread([headers.get(fid(f), []) for f in targets], deep)
+    timings: dict[str, list[float]] = defaultdict(list)
+    open_errors: list[str] = []
+    for i, header in enumerate(picks, 1):
+        _progress(f"  상세 읽기 {i}/{len(picks)}")
+        try:
+            for step, seconds in source.measure(header).items():
+                timings[step].append(seconds)
+        except Exception as exc:  # noqa: BLE001
+            open_errors.append(err(exc))
+    _progress("")
+    if picks and timings:
+        per_mail = sum(sum(v) / len(v) for v in timings.values())
+        details = [f"{len(picks)}건 평균 (ms): " + ", ".join(
+            f"{step} {sum(timings[step]) / len(timings[step]) * 1000:.0f}" for step in MEASURE_STEPS if timings[step]
+        )]
+        details.append(f"메일 1건 상세 읽기 약 {per_mail:.2f}초 → 수집 대상 {_fmt(n)}건이면 약 {n * per_mail / 60:.1f}분 (+ .msg 저장)")
+        out.result(PASS if not open_errors else WARN, "P6", "상세 읽기 단계별 시간", details=details)
     else:
-        out.result(INFO, "P4", "증분 조회: 확인할 만큼 작은 폴더가 없음 (sample 값을 늘려 다시 실행)")
+        out.result(INFO, "P6", "상세 읽기: 읽어볼 항목이 없음")
+    if open_errors:
+        out.result(WARN, "P6", CODES["E113"].title, code="E113", details=open_errors[:5])
 
-    # P5 보존 경로 (P6 에서 실제 저장을 이 경로에 해보므로 먼저 만든다)
-    _probe_archive_root(out, archive_root)
+    # P7 보존 경로 (P8 에서 실제 저장을 이 경로에 해보므로 먼저 만든다)
+    _probe_archive_root(out, archive_root, err)
 
-    # P6 .msg 저장
-    candidate = next(
-        (r for r in all_records if r.message_class == "IPM.Note" and not r.is_stub),
-        next(iter(all_records), None),
-    )
+    # P8 .msg 저장
+    candidate = next((h for h in picks if h.message_class == "IPM.Note"), next(iter(picks), None))
     if candidate is None:
-        out.result(INFO, "P6", ".msg 저장: 저장해볼 항목이 없음")
+        out.result(INFO, "P8", ".msg 저장: 저장해볼 항목이 없음")
     else:
         _probe_save(out, source, candidate, archive_root, err)
 
     return _finish(out, log_dir, started)
 
 
+def _group(folder: FolderRef, default_index: int) -> str:
+    if folder.store_index != default_index:
+        return f"store#{folder.store_index}"
+    if folder.kind:
+        return folder.kind
+    return "user-folder"
+
+
+def _missing_by(rows: Iterable, key: Callable[[MailHeader], str] | None) -> str:
+    """Message-ID 없는 항목 수를 그룹별로. rows 가 (group, header) 쌍이면 key 는 None."""
+    total: Counter[str] = Counter()
+    missing: Counter[str] = Counter()
+    for row in rows:
+        group, header = (row if key is None else (key(row), row))
+        total[group] += 1
+        if not header.message_id:
+            missing[group] += 1
+    parts = [f"{g or '(empty)'} {missing[g]}/{total[g]}" for g, _ in total.most_common() if missing[g]]
+    return ", ".join(parts) or "없음"
+
+
+_KEYS: dict[str, Callable[[MailHeader], str | None]] = {
+    "Message-ID": lambda h: h.message_id,
+    "SearchKey": lambda h: h.search_key,
+    "보낸이+수신시각+제목": lambda h: f"{h.sender_name}|{h.received}|{h.subject}" if h.received else None,
+    "MsgID 또는 SearchKey": lambda h: h.message_id or (f"sk:{h.search_key}" if h.search_key else None),
+}
+
+
+def _spread(groups: list[list[MailHeader]], count: int) -> list[MailHeader]:
+    """여러 폴더에서 고르게, 일반 메일 위주로 골라낸다."""
+    pools = [[h for h in rows if not h.is_stub] for rows in groups]
+    picked: list[MailHeader] = []
+    depth = 0
+    while len(picked) < count and any(len(p) > depth for p in pools):
+        for pool in pools:
+            if len(pool) > depth and len(picked) < count:
+                picked.append(pool[depth])
+        depth += 1
+    return picked
+
+
 def _probe_save(
     out: Reporter,
     source: MailSource,
-    item: MailRecord,
+    header: MailHeader,
     archive_root: Path | None,
     err: Callable[[BaseException], str],
 ) -> None:
@@ -243,28 +376,30 @@ def _probe_save(
     base = archive_root if archive_root and archive_root.is_dir() else None
     work = Path(tempfile.mkdtemp(prefix="mailer-probe-", dir=base))
     try:
+        record = source.open(header)
         sizes = []
         for name in ("mailer-probe.msg", "mailer-probe-한글.msg"):
             path = work / name
-            source.save_msg(item, path)
+            source.save_msg(record, path)
             if not path.is_file() or path.stat().st_size == 0:
                 raise OSError(f"{name}: 파일이 없거나 비어 있음")
             sizes.append(path.stat().st_size)
+        del record
         where = "보존 경로" if base else "임시 폴더"
         out.result(
-            PASS, "P6", ".msg 저장 (유니코드, 한글 파일명)",
+            PASS, "P8", ".msg 저장 (유니코드, 한글 파일명, 2회)",
             details=[f"{where}에 저장 후 삭제, 크기 {', '.join(_fmt(s) for s in sizes)} bytes"],
             elapsed=time.perf_counter() - t,
         )
     except Exception as exc:  # noqa: BLE001
-        out.result(FAIL, "P6", CODES["E109"].title, code="E109", details=[err(exc)])
+        out.result(FAIL, "P8", CODES["E109"].title, code="E109", details=[err(exc)])
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
 
-def _probe_archive_root(out: Reporter, archive_root: Path | None) -> None:
+def _probe_archive_root(out: Reporter, archive_root: Path | None, err: Callable[[BaseException], str]) -> None:
     if archive_root is None:
-        out.result(INFO, "P5", "보존 경로 미지정 — probe.bat <경로> 로 지정하면 쓰기 가능 여부를 확인합니다")
+        out.result(INFO, "P7", "보존 경로 미지정 — probe.bat <경로> 로 지정하면 쓰기 가능 여부를 확인합니다")
         return
     try:
         archive_root.mkdir(parents=True, exist_ok=True)
@@ -272,18 +407,17 @@ def _probe_archive_root(out: Reporter, archive_root: Path | None) -> None:
         test.write_text("ok", encoding="utf-8")
         test.unlink()
     except Exception as exc:  # noqa: BLE001
-        out.result(FAIL, "P5", CODES["E110"].title, code="E110", details=[describe_exc(exc)])
+        out.result(FAIL, "P7", CODES["E110"].title, code="E110", details=[err(exc)])
         return
     free = shutil.disk_usage(archive_root).free
     root_len = len(str(archive_root.resolve()))
     out.result(
-        PASS, "P5", "보존 경로 쓰기",
+        PASS, "P7", "보존 경로 쓰기",
         details=[f"경로 길이 {root_len}자, 남은 용량 {free / 1024**3:.1f} GB"],
     )
-    long_paths = _windows_long_paths_enabled()
-    if long_paths is False:
+    if _windows_long_paths_enabled() is False:
         out.result(
-            WARN, "P5", CODES["E111"].title, code="E111",
+            WARN, "P7", CODES["E111"].title, code="E111",
             details=[f"파일명에 쓸 수 있는 길이 약 {WINDOWS_MAX_PATH - root_len - 20}자 (파일명은 자동으로 줄입니다)"],
         )
 
@@ -301,8 +435,8 @@ def _windows_long_paths_enabled() -> bool | None:
         return False
 
 
-def _is_descending(records: list[MailRecord]) -> bool:
-    times = [r.received for r in records if r.received]
+def _is_descending(rows: list[MailHeader]) -> bool:
+    times = [h.received for h in rows if h.received]
     return all(a >= b for a, b in zip(times, times[1:]))
 
 
@@ -313,7 +447,7 @@ def _progress(text: str) -> None:
 
 def _finish(out: Reporter, log_dir: Path | None, started: datetime) -> int:
     c = out.counts
-    out.line("-" * 64)
+    out.line("-" * 72)
     out.line(f" 결과: PASS {c[PASS]} / WARN {c[WARN]} / FAIL {c[FAIL]} / INFO {c[INFO]}")
     log = None
     if log_dir is not None:

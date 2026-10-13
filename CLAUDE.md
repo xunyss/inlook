@@ -11,6 +11,9 @@
 - 보존 정책: 메일함에서 약 1개월 후 아카이브로 이동, 그 후 약 2개월 뒤 삭제. 아카이브는 실사용하지 않음
 - VDI에서 되는 것: Python(버전 자유 설치) + pywin32, Outlook VBA, `.msg` SaveAs, git clone
 - VDI에서 안 되는 것: PowerShell, Claude Code
+- **Outlook 은 온라인 모드** (캐시 모드 아님). 속성을 처음 읽을 때마다 Exchange 서버 왕복
+- probe v1 결과: 기본 사서함 메일 693건, 메일 폴더 31개(깊이 2), 저장소 2개,
+  항목별 COM 읽기 초당 약 2건, Message-ID 있음 69%, stub 0건, LongPathsEnabled 꺼짐
 
 ## 방향
 - 송수신 클라이언트가 아니라 "Outlook 옆의 보존기 + 검색 뷰어"
@@ -22,10 +25,15 @@
 - pywin32는 Windows 전용 → `sys_platform == 'win32'` 마커로 Mac 개발 환경과 공존
 - `[tool.uv] package = false` — 패키지로 설치하지 않고 저장소 루트에서 `python -m mailer` 로 실행
 - 뷰어는 **자체 데스크톱 UI (PySide6)**. 브라우저·로컬 웹서버 방식은 쓰지 않는다
-- 중복 판단 키는 Internet Message-ID (EntryID는 폴더 이동/아카이브 시 바뀜)
+- 중복 판단 키: Internet Message-ID 우선, 없으면 대체 키 (probe v2 의 키 분석 결과로 확정 예정).
+  EntryID는 폴더 이동/아카이브 시 바뀌므로 키로 쓰지 않는다
 - `.msg` 저장 형식은 olMSGUnicode(9). olMSG(3)는 ANSI라 한글이 깨질 수 있음
-- 증분 조회는 `Items.Sort("[ReceivedTime]", True)` 후 기준일보다 오래되면 중단.
-  `Restrict` 날짜 문자열은 로케일 의존이라 쓰지 않는다
+- 목록은 **Table API**(`Folder.GetTable`)로 필요한 열만 읽는다 (`headers()`).
+  본문·첨부·.msg 저장은 새 메일만 `open()` 해서 한다 (온라인 모드라 건당 서버 왕복)
+- 증분 조회는 Table 을 `[ReceivedTime]` 내림차순 정렬 후 기준일보다 오래되면 중단.
+  `Restrict`/Table 필터의 날짜 문자열은 로케일 의존이라 쓰지 않는다
+- 온라인 모드의 동시 열기 제한(Exchange 기본 약 250개) 때문에 연 메일 객체는 처리 후 바로 버린다
+- 두 번째 저장소(아카이브 추정)도 수집 대상 후보. probe v2 로 내용 확인 중
 
 ## 개발·테스트 전략 (Mac에서 개발, VDI에서 실행)
 - Outlook COM 접근은 `MailSource` 인터페이스(`mailer/source.py`) 뒤로 격리한다
