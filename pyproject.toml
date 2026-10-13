@@ -15,6 +15,8 @@ dev = [
 
 [tool.uv]
 package = false
+# VDI 에서는 uv 캐시(C:)와 저장소가 다른 드라이브에 있어 하드링크가 안 된다
+link-mode = "copy"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
