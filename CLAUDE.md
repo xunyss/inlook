@@ -14,6 +14,11 @@
 - **Outlook 은 온라인 모드** (캐시 모드 아님). 속성을 처음 읽을 때마다 Exchange 서버 왕복
 - probe v1 결과: 기본 사서함 메일 693건, 메일 폴더 31개(깊이 2), 저장소 2개,
   항목별 COM 읽기 초당 약 2건, Message-ID 있음 69%, stub 0건, LongPathsEnabled 꺼짐
+- probe v4 결과 (2026-10-13, 기본 사서함만, 표본): 정상 종료, Outlook 문제 없음
+  - 수집 대상 폴더 10개(받은 편지함+하위 8개, 보낸 편지함) 490건, 지운 편지함 213건
+  - 폴더별 가장 오래된 메일이 대부분 3~5주 전 → 실제 보존 기간 약 1개월 (예외적으로 오래된 메일 일부 존재)
+  - Table API 로 읽으면 Message-ID·SearchKey 모두 100% (v1 의 69% 는 항목별 PropertyAccessor 방식 탓으로 추정)
+  - Table 목록 초당 약 52행, 메일 1건 열어 읽기 약 0.47초, 1.8MB 메일 열기+.msg 2회 저장 4.5초
 
 ## 방향
 - 송수신 클라이언트가 아니라 "Outlook 옆의 보존기 + 검색 뷰어"
@@ -25,7 +30,7 @@
 - pywin32는 Windows 전용 → `sys_platform == 'win32'` 마커로 Mac 개발 환경과 공존
 - `[tool.uv] package = false` — 패키지로 설치하지 않고 저장소 루트에서 `python -m mailer` 로 실행
 - 뷰어는 **자체 데스크톱 UI (PySide6)**. 브라우저·로컬 웹서버 방식은 쓰지 않는다
-- 중복 판단 키: Internet Message-ID 우선, 없으면 대체 키 (probe v2 의 키 분석 결과로 확정 예정).
+- 중복 판단 키: **Internet Message-ID**, 없으면 SearchKey (probe v4 에서 둘 다 100%, 중복 0).
   EntryID는 폴더 이동/아카이브 시 바뀌므로 키로 쓰지 않는다
 - `.msg` 저장 형식은 olMSGUnicode(9). olMSG(3)는 ANSI라 한글이 깨질 수 있음
 - 목록은 **Table API**(`Folder.GetTable`)로 필요한 열만 읽는다 (`headers()`).
