@@ -1,0 +1,18 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Local data — never commit real mail, DBs, logs or local settings
+archive/
+logs/
+*.msg
+*.db
+*.sqlite
+config.toml

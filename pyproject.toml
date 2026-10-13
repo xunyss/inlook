@@ -1,0 +1,20 @@
+[project]
+name = "mailer"
+version = "0.1.0"
+description = "Archive Outlook (Exchange) mail to .msg files before retention policy deletes them"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pywin32>=311; sys_platform == 'win32'",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
