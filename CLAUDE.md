@@ -92,6 +92,18 @@
   22분 33초 (건당 0.4~10초). 가장 오래된 메일 2023-11 (예외), 나머지는 2026-08 말부터
 - 사용자는 새 메일을 **Outlook 에서 폴더 정리를 끝낸 뒤** 수집한다 (라벨이 첫 수집 때만 정해지므로)
 
+## 뷰어 앱 1차 (2026-10-14)
+- `app.bat` → `python -m mailer app [보존 경로]`. pythonw 로 콘솔 없이 뜬다 (콘솔 창을 닫아 동기화가 강제 종료되는 일 방지)
+- 의존성은 `pyside6-essentials` (WebEngine 등 애드온 제외, 설치 용량 절약). 본문은 QTextBrowser 로 표시 —
+  스크립트 실행·원격 이미지 로드를 하지 않는다. 링크는 눌렀을 때만 외부 브라우저로
+- 구성: 라벨 트리 | 메일 목록 | 미리보기. 검색은 SQLite LIKE (띄어쓰기 = AND, 제목·사람·본문·첨부 파일명).
+  한글 부분 일치가 필요해서 FTS 대신 LIKE. 수천~수만 건까지는 충분하다
+- 라벨은 '/' 경로. 상위 라벨로 거르면 하위 포함. 메일이 하나도 없는 라벨은 자동으로 없어진다
+- 동기화: 작업 스레드(QThread)에서 `run_collect` + `pythoncom.CoInitialize`. [중단]은 cancel 이벤트 →
+  저장 중인 한 건을 마치고 멈춘다 (Ctrl+C 와 같은 처리). 동기화 창은 끝날 때까지 닫을 수 없다
+- 마지막 정상 동기화가 21일 이상 지나면 상단 표시를 빨갛게
+- `library.py` 에 DB 조회·라벨 편집을 모아 Qt 없이 테스트한다. UI 는 pytest-qt offscreen 스모크 테스트
+
 ## 개발·테스트 전략 (Mac에서 개발, VDI에서 실행)
 - Outlook COM 접근은 `MailSource` 인터페이스(`mailer/source.py`) 뒤로 격리한다
   - `OutlookSource`(VDI 전용, 얇게) / `FakeMailSource`(Mac용 합성 데이터)

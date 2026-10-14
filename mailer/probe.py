@@ -56,12 +56,16 @@ class Redactor:
 class Reporter:
     """화면과 로그 파일에 동시에, 한 줄씩 바로 쓴다."""
 
-    def __init__(self, log: TextIO | None) -> None:
+    def __init__(self, log: TextIO | None, echo: Callable[[str], None] | None = None) -> None:
         self.log = log
+        self.echo = echo  # None 이면 화면(print)
         self.counts: Counter[str] = Counter()
 
     def _write(self, text: str) -> None:
-        print(text, end="", flush=True)
+        if self.echo:
+            self.echo(text)
+        else:
+            print(text, end="", flush=True)
         if self.log:
             self.log.write(text)
             self.log.flush()

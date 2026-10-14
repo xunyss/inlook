@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import gc
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -64,16 +65,26 @@ def run_collect(
     dry_run: bool = False,
     margin_days: int = DEFAULT_MARGIN_DAYS,
     log_dir: Path | None = None,
+    echo: Callable[[str], None] | None = None,
+    progress: Callable[[int, int], None] | None = None,
+    cancel: threading.Event | None = None,
 ) -> int:
-    """종료 코드: 0 정상, 1 일부 실패, 2 시작 불가, 130 Ctrl+C 중단."""
+    """종료 코드: 0 정상, 1 일부 실패, 2 시작 불가, 130 중단 (Ctrl+C 또는 cancel).
+
+    echo: 화면 출력 대신 받을 함수 (앱의 로그 창). progress: (저장한 수, 전체) 통지.
+    cancel: 앱의 [중단] 버튼. 진행 중인 메일 한 건을 마친 뒤 멈춘다.
+    """
     started = datetime.now()
     log = None
     if log_dir is not None:
         log_dir.mkdir(parents=True, exist_ok=True)
         log = (log_dir / f"collect-{started:%Y%m%d-%H%M%S}.txt").open("w", encoding="utf-8")
     try:
-        out = Reporter(log)
-        return _Collector(out, make_source, archive_root, full, dry_run, margin_days, started).run()
+        out = Reporter(log, echo)
+        collector = _Collector(out, make_source, archive_root, full, dry_run, margin_days, started)
+        collector.progress = progress
+        collector.cancel = cancel
+        return collector.run()
     finally:
         gc.collect()
         if log:
@@ -94,6 +105,12 @@ class _Collector:
         self.sync_id: int | None = None
         self.listed = self.new = self.saved = self.failed = 0
         self.folder_errors = 0
+        self.progress: Callable[[int, int], None] | None = None
+        self.cancel: threading.Event | None = None
+
+    def check_cancel(self) -> None:
+        if self.cancel is not None and self.cancel.is_set():
+            raise KeyboardInterrupt
 
     def err(self, exc: BaseException) -> str:
         return self.redact(describe_exc(exc))
@@ -112,7 +129,7 @@ class _Collector:
             return self._run()
         except KeyboardInterrupt:
             out.line("")
-            out.line("[STOP] Ctrl+C — 지금까지 저장한 메일은 DB 에 남아 있습니다. 다시 실행하면 이어서 합니다.")
+            out.line("[STOP] 중단 — 지금까지 저장한 메일은 DB 에 남아 있습니다. 다시 실행하면 이어서 합니다.")
             self._end("stopped")
             self._summary()
             return 130
@@ -168,6 +185,7 @@ class _Collector:
         candidates: dict[str, Candidate] = {}
         t0 = time.perf_counter()
         for folder_id, folder in targets:
+            self.check_cancel()
             out.begin(f"{folder_id} 목록")
             rows = 0
             try:
@@ -213,7 +231,10 @@ class _Collector:
         width = len(str(total))
         consecutive = 0
         t0 = time.perf_counter()
+        if self.progress:
+            self.progress(0, total)
         for i, cand in enumerate(pending, 1):
+            self.check_cancel()
             h = cand.header
             self.redact.add(h.subject, h.sender_name)
             when = h.received or datetime.now()
@@ -259,6 +280,8 @@ class _Collector:
             spent = time.perf_counter() - t0
             remain = spent / i * (total - i)
             out.line(f"saved {time.perf_counter() - t:.1f}s   남은 시간 약 {_eta(remain)}")
+            if self.progress:
+                self.progress(i, total)
         return "ok" if not self.failed and not self.folder_errors else "partial"
 
     def _end(self, status: str) -> None:

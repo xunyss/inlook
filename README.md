@@ -3,7 +3,7 @@
 Outlook(Exchange) 메일을 보존 정책으로 사라지기 전에 `.msg` 로 저장하고, 검색해서 다시 읽기 위한 도구.
 
 - 수집: Python + pywin32 로 Outlook COM 자동화 (Windows 전용)
-- 뷰어: PySide6 데스크톱 UI (예정)
+- 뷰어: PySide6 데스크톱 UI (`app.bat`)
 
 ## Windows 에서 사용
 
@@ -21,6 +21,14 @@ collect.bat E:\other   # 다른 보존 경로. --full: 마지막 동기화와 �
 - 오래된 메일부터 저장한다. 중간에 Ctrl+C 로 멈춰도 저장된 건 남고, 다시 실행하면 이어서 한다.
 - 실행 창을 닫지 말 것 (Outlook 이 죽을 수 있다). 멈출 때는 Ctrl+C.
 
+```
+app.bat                # 뷰어. 검색, 라벨 붙이기/떼기/이름 바꾸기, 미리보기, .msg 열기, [동기화] 버튼
+```
+
+- 동기화 버튼은 `collect.bat` 과 같은 일을 한다. 동기화 창은 끝날 때까지 닫히지 않는다 (멈출 때는 [중단]).
+- 마지막 동기화가 21일 넘게 지났으면 오른쪽 위 표시가 빨갛게 바뀐다.
+- 앱이 안 뜨면 cmd 에서 `.venv\Scripts\python.exe -m mailer app` 으로 실행해 오류를 확인한다.
+
 `probe` 출력에는 메일 내용·이름·폴더명이 나오지 않는다. 폴더는 `folder#NN` 으로만 표시된다.
 
 ## 개발 (Mac 등, Outlook 없이)
@@ -28,5 +36,6 @@ collect.bat E:\other   # 다른 보존 경로. --full: 마지막 동기화와 �
 ```bash
 uv sync --python 3.12
 uv run python -m mailer probe --fake
+uv run python -m mailer app ./tmp-archive --fake   # 동기화 버튼이 합성 데이터를 넣는다
 uv run pytest
 ```

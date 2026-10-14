@@ -39,6 +39,11 @@ def main(argv: list[str] | None = None) -> int:
     collect.add_argument("--full", action="store_true", help="마지막 동기화 시각과 상관없이 전체 목록을 다시 확인")
     collect.add_argument("--margin-days", type=int, default=2, help="마지막 동기화보다 며칠 더 거슬러 볼지 (기본 2)")
 
+    app = sub.add_parser("app", help="뷰어 (검색·라벨·동기화)")
+    app.add_argument("archive_root", nargs="?", type=Path, default=DEFAULT_ARCHIVE_ROOT,
+                     help=f"보존 경로 (기본 {DEFAULT_ARCHIVE_ROOT})")
+    app.add_argument("--fake", action="store_true", help="동기화에 합성 데이터 사용 (Mac 개발용)")
+
     args = parser.parse_args(argv)
 
     if args.fake:
@@ -48,6 +53,10 @@ def main(argv: list[str] | None = None) -> int:
     else:
         make_source = _outlook_source
 
+    if args.command == "app":
+        from .ui import run_app
+
+        return run_app(args.archive_root, make_source, LOG_DIR)
     if args.command == "collect":
         from .collect import run_collect
 

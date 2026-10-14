@@ -5,12 +5,14 @@ description = "Archive Outlook (Exchange) mail to .msg files before retention po
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "pyside6-essentials>=6.8",
     "pywin32>=311; sys_platform == 'win32'",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=8",
+    "pytest-qt>=4.5.0",
 ]
 
 [tool.uv]

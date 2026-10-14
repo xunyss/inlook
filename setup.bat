@@ -10,7 +10,7 @@ if %errorlevel%==0 (
 ) else (
     echo [setup] uv not found, using python -m venv + pip
     if not exist ".venv\Scripts\python.exe" python -m venv .venv || goto :fail
-    ".venv\Scripts\python.exe" -m pip install "pywin32>=311" || goto :fail
+    ".venv\Scripts\python.exe" -m pip install "pywin32>=311" "pyside6-essentials>=6.8" || goto :fail
 )
 echo.
 echo [setup] OK
