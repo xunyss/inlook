@@ -25,7 +25,7 @@ from .probe import FAIL, INFO, PASS, RULE, WARN, Redactor, Reporter, describe_ex
 from .source import EXCLUDED_KINDS, FolderRef, MailHeader, MailSource
 from .store import Store, mail_key, msg_relpath
 
-DEFAULT_MARGIN_DAYS = 2
+DEFAULT_MARGIN_DAYS = 3  # 사용자 결정 2026-10-14. 시계 차이 + 지운 편지함에서 최근 메일 복원 대비
 MAX_CONSECUTIVE_FAILURES = 5
 WINDOWS_MAX_PATH = 260
 # archive_root 뒤에 붙는 경로 길이: \msg\YYYY\MM\YYYYMMDD-HHMMSS_<12>.msg
