@@ -27,8 +27,9 @@ KIND_OUTBOX = "outbox"
 KIND_DELETED = "deleted"
 KIND_JUNK = "junk"
 
-# 보관 대상이 아닌 기본 폴더
-EXCLUDED_KINDS = frozenset({KIND_DRAFTS, KIND_OUTBOX, KIND_DELETED, KIND_JUNK})
+# 수집하지 않는 기본 폴더 (사용자 결정 2026-10-14: 지운 편지함·임시 보관함 제외.
+# 보낸 편지함·정크 메일은 포함. 보낼 편지함(outbox)은 아직 안 보낸 항목이라 뺀다)
+EXCLUDED_KINDS = frozenset({KIND_DRAFTS, KIND_OUTBOX, KIND_DELETED})
 
 # 아카이브(Enterprise Vault) 로 옮겨진 뒤 남는 바로가기 항목의 MessageClass 접두어
 STUB_CLASS_PREFIXES = ("IPM.Note.EnterpriseVault.Shortcut",)
