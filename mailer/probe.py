@@ -69,6 +69,10 @@ class Reporter:
     def line(self, text: str = "") -> None:
         self._write(text + "\n")
 
+    def part(self, text: str) -> None:
+        """줄을 끝내지 않고 쓴다. 이어서 결과를 같은 줄에 붙인다."""
+        self._write(text)
+
     def begin(self, text: str) -> None:
         """COM 호출 직전에 찍는다. 도중에 멈추면 이 줄이 마지막으로 남는다."""
         self.line(f"     · {text} ...")

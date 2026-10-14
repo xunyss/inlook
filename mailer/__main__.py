@@ -9,6 +9,7 @@ from pathlib import Path
 from .errors import CODES
 
 LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
+DEFAULT_ARCHIVE_ROOT = Path("D:/mailbox")
 
 
 def _outlook_source():
@@ -30,17 +31,37 @@ def main(argv: list[str] | None = None) -> int:
     probe.add_argument("--rows", type=int, default=30, help="폴더당 읽어볼 목록 행 수 (기본 30)")
     probe.add_argument("--deep", type=int, default=5, help="열어서 시간을 잴 메일 수 (기본 5)")
 
+    collect = sub.add_parser("collect", help="동기화: 새 메일을 .msg + DB 로 저장")
+    collect.add_argument("archive_root", nargs="?", type=Path, default=DEFAULT_ARCHIVE_ROOT,
+                         help=f"보존 경로 (기본 {DEFAULT_ARCHIVE_ROOT})")
+    collect.add_argument("--fake", action="store_true", help="Outlook 대신 합성 데이터 사용 (Mac 개발용)")
+    collect.add_argument("--dry-run", action="store_true", help="목록만 읽고 저장하지 않음")
+    collect.add_argument("--full", action="store_true", help="마지막 동기화 시각과 상관없이 전체 목록을 다시 확인")
+    collect.add_argument("--margin-days", type=int, default=2, help="마지막 동기화보다 며칠 더 거슬러 볼지 (기본 2)")
+
     args = parser.parse_args(argv)
 
+    if args.fake:
+        from .fake import FakeMailSource
+
+        make_source = FakeMailSource
+    else:
+        make_source = _outlook_source
+
+    if args.command == "collect":
+        from .collect import run_collect
+
+        return run_collect(
+            make_source,
+            args.archive_root,
+            full=args.full,
+            dry_run=args.dry_run,
+            margin_days=args.margin_days,
+            log_dir=LOG_DIR,
+        )
     if args.command == "probe":
         from .probe import run_probe
 
-        if args.fake:
-            from .fake import FakeMailSource
-
-            make_source = FakeMailSource
-        else:
-            make_source = _outlook_source
         return run_probe(
             make_source,
             rows=args.rows,

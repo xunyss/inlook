@@ -77,12 +77,22 @@
 - 같은 메일이 두 폴더에 있으면(같은 Message-ID) 메일 1건 + 라벨 2개
 - 수집 후 Outlook 에서 폴더를 옮겨도 mailer 라벨은 바뀌지 않는다 (사용자 확인함)
 
+## 수집기 1차 (2026-10-14)
+- **앱보다 메일 확보가 먼저** (사용자 지시). 보존 기간이 지나는 메일이 매일 생기므로
+  `collect.bat`(`python -m mailer collect`) 을 먼저 만들고, PySide6 앱은 나중에 이 엔진을 붙인다
+- 기본 보존 경로 `D:\mailbox` (사용자 지정). `mailer.db` + `msg\YYYY\MM\*.msg`
+- **오래된 메일부터 저장** — 곧 사라질 메일을 먼저 확보
+- 메일 한 건마다 커밋. 실패·중단이 있던 동기화(`partial`/`stopped`)는 기준 시각으로 쓰지 않는다
+  → 다음 실행이 같은 구간을 다시 보고 빠진 것만 채운다. 연속 5건 실패하면 멈춘다
+- 키가 Message-ID·SearchKey 둘 다 없으면 EntryID 로라도 저장한다 (버리지 않는다)
+- 첫 동기화는 기준 시각 없이 대상 폴더 전체 목록을 읽는다 (probe 기준 약 700행, 목록만 수십 초)
+
 ## 개발·테스트 전략 (Mac에서 개발, VDI에서 실행)
 - Outlook COM 접근은 `MailSource` 인터페이스(`mailer/source.py`) 뒤로 격리한다
   - `OutlookSource`(VDI 전용, 얇게) / `FakeMailSource`(Mac용 합성 데이터)
 - 테스트 데이터는 합성 데이터만 쓴다
 - COM 동작은 VDI에서 `probe.bat`(자가진단)으로 검증하고 결과 화면만 받아본다
-- 수집기는 `--dry-run` 지원 예정
+- 수집기는 `--dry-run` 지원
 
 ## 배포 흐름
 - Mac(Claude Code) → git push → VDI에서 git clone/pull. **VDI는 받기만 한다 (push 안 함)**
