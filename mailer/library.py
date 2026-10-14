@@ -75,6 +75,18 @@ class Library:
         )
         return {name: n for name, n in rows}
 
+    def tree_counts(self) -> dict[str, int]:
+        """라벨 경로마다 하위 라벨까지 합친 메일 수 (중복 없이). 목록에서 그 라벨을 눌렀을 때의 건수와 같다."""
+        mails: dict[str, set[int]] = {}
+        rows = self.db.execute(
+            "SELECT l.name, ml.mail_id FROM mail_labels ml JOIN labels l ON l.id = ml.label_id"
+        )
+        for name, mail_id in rows:
+            parts = name.split("/")
+            for depth in range(1, len(parts) + 1):
+                mails.setdefault("/".join(parts[:depth]), set()).add(mail_id)
+        return {path: len(ids) for path, ids in mails.items()}
+
     def unlabeled_count(self) -> int:
         return self.db.execute(
             "SELECT COUNT(*) FROM mails m WHERE NOT EXISTS (SELECT 1 FROM mail_labels ml WHERE ml.mail_id = m.id)"

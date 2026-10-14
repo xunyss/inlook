@@ -53,6 +53,8 @@ def test_sync_then_list_search_and_preview(qtbot, window):
 
 def test_label_tree_filters(qtbot, window):
     _sync(qtbot, window)
+    parent = window.tree.findItems("프로젝트A (15)", Qt.MatchFlag.MatchExactly | Qt.MatchFlag.MatchRecursive)
+    assert parent and "직접 10건" in parent[0].toolTip(0)
     found = window.tree.findItems("회의록 (5)", Qt.MatchFlag.MatchExactly | Qt.MatchFlag.MatchRecursive)
     assert found
     window.tree.setCurrentItem(found[0])

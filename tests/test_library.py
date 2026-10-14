@@ -80,3 +80,10 @@ def test_get_returns_detail_with_msg_path(lib):
     mail = lib.get(row.id)
     assert mail.msg_path.is_file()
     assert mail.labels == ["받은 편지함"]
+
+
+def test_tree_counts_match_list_size(lib):
+    totals = lib.tree_counts()
+    for path in ("받은 편지함", "받은 편지함/프로젝트A", "보낸 편지함"):
+        assert totals[path] == len(lib.search(label=path))
+    assert totals["받은 편지함"] + totals["보낸 편지함"] + totals["보관"] == lib.count()
