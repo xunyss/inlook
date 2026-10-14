@@ -162,3 +162,45 @@ def test_rejects_root_too_long_for_windows(tmp_path, capsys):
     root = tmp_path / ("x" * 240)
     assert run_collect(lambda: FakeMailSource(NOW), root) == 2
     assert "[E111]" in capsys.readouterr().out
+
+
+def _with_slash_folder(source: FakeMailSource) -> tuple[str, ...]:
+    path = ("받은 편지함", "AI/IT 센터")
+    source._folder(path)
+    for i in range(2):
+        source._mail(path, i + 1, f"슬래시 폴더 메일 {i}")
+    source._folders = [
+        replace(f, item_count=len(source._items[f.path])) for f in source._folders
+    ]
+    return path
+
+
+def test_slash_in_folder_name_is_not_a_sub_label(tmp_path):
+    source = FakeMailSource(NOW)
+    _with_slash_folder(source)
+    run_collect(lambda: source, tmp_path)
+    labels = {r[0] for r in _db(tmp_path).execute("SELECT name FROM labels")}
+    assert "받은 편지함/AI∕IT 센터" in labels
+    assert not any(name.startswith("받은 편지함/AI/") for name in labels)
+
+
+def test_legacy_slash_labels_are_fixed_on_next_sync(tmp_path, capsys):
+    source = FakeMailSource(NOW)
+    _with_slash_folder(source)
+    run_collect(lambda: source, tmp_path)
+    db = _db(tmp_path)
+    db.execute("UPDATE labels SET name = '받은 편지함/AI/IT 센터' WHERE name = '받은 편지함/AI∕IT 센터'")
+    db.commit()
+
+    assert run_collect(lambda: source, tmp_path, dry_run=True) == 0  # dry-run 은 고치지 않는다
+    assert db.execute("SELECT COUNT(*) FROM labels WHERE name LIKE '받은 편지함/AI/%'").fetchone()[0] == 1
+
+    assert run_collect(lambda: source, tmp_path) == 0
+    rows = dict(db.execute(
+        "SELECT l.name, COUNT(*) FROM labels l JOIN mail_labels ml ON ml.label_id = l.id GROUP BY l.id"
+    ).fetchall())
+    assert rows.get("받은 편지함/AI∕IT 센터") == 2
+    assert not any(name.startswith("받은 편지함/AI/") for name in rows)
+    out = capsys.readouterr().out
+    assert "라벨 1개를 바로잡음" in out
+    assert "AI" not in out

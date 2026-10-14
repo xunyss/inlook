@@ -177,6 +177,25 @@ class Store:
                     "INSERT OR IGNORE INTO mail_labels (mail_id, label_id) VALUES (?, ?)", (mail_id, label_id)
                 )
 
+    def fix_labels(self, renames: dict[str, str]) -> int:
+        """라벨 이름을 정확히 일치하는 것만 바꾼다 (하위 라벨은 각자 따로). 바꾼 라벨 수."""
+        fixed = 0
+        with self.db:
+            for old, new in renames.items():
+                row = self.db.execute("SELECT id FROM labels WHERE name = ?", (old,)).fetchone()
+                if row is None:
+                    continue
+                self.db.execute("INSERT OR IGNORE INTO labels (name) VALUES (?)", (new,))
+                (new_id,) = self.db.execute("SELECT id FROM labels WHERE name = ?", (new,)).fetchone()
+                self.db.execute(
+                    "INSERT OR IGNORE INTO mail_labels (mail_id, label_id) SELECT mail_id, ? FROM mail_labels WHERE label_id = ?",
+                    (new_id, row[0]),
+                )
+                self.db.execute("DELETE FROM mail_labels WHERE label_id = ?", (row[0],))
+                self.db.execute("DELETE FROM labels WHERE id = ?", (row[0],))
+                fixed += 1
+        return fixed
+
     def count(self) -> int:
         return self.db.execute("SELECT COUNT(*) FROM mails").fetchone()[0]
 

@@ -46,8 +46,24 @@ def is_target(folder: FolderRef) -> bool:
     return folder.is_mail and folder.kind not in EXCLUDED_KINDS and folder.item_count > 0
 
 
+# 라벨은 '/' 로 계층을 나눈다. Outlook 폴더 이름 안의 '/' 는 모양이 같은 다른 문자로 바꾼다
+# (예: 'AI/IT 센터' 폴더가 'AI' 아래 'IT 센터' 로 쪼개지지 않게).
+FOLDER_SLASH = "∕"  # ∕ DIVISION SLASH
+
+
 def label_of(folder: FolderRef) -> str:
-    return "/".join(folder.path)
+    return "/".join(part.replace("/", FOLDER_SLASH) for part in folder.path)
+
+
+def _legacy_label_fixes(folders: list[FolderRef]) -> dict[str, str]:
+    """예전 방식('/' 그대로)으로 붙은 라벨 → 올바른 라벨. 실제 다른 폴더 경로와 겹치는 것은 건드리지 않는다."""
+    real = {label_of(f) for f in folders}
+    fixes = {}
+    for folder in folders:
+        old, new = "/".join(folder.path), label_of(folder)
+        if old != new and old not in real:
+            fixes[old] = new
+    return fixes
 
 
 def _eta(seconds: float) -> str:
@@ -180,6 +196,10 @@ class _Collector:
             if is_target(folder):
                 targets.append((f"folder#{index:02d}", folder))
         out.result(PASS, "C3", f"수집 대상 폴더 {len(targets)}개 / 전체 {len(folders)}개")
+        if not self.dry_run:
+            fixed = self.store.fix_labels(_legacy_label_fixes(folders))
+            if fixed:
+                out.result(INFO, "C3", f"이름에 '/' 가 든 폴더의 라벨 {fixed}개를 바로잡음")
 
         # C4 목록 조회 (Table, 기준 시각까지만)
         candidates: dict[str, Candidate] = {}
