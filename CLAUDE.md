@@ -5,6 +5,41 @@
 >
 > 사용자에게 하는 답변은 항상 **한국어**로 한다.
 
+## 새 세션은 여기부터: 작업 방식과 현재 상태 (2026-10-15 기준)
+
+### 작업 루프
+- 사용자는 회사 VDI(Windows)에서 실행하고, 개발은 이 Mac 에서 한다. VDI 에서는 Claude Code 를 못 쓴다
+- **VDI 결과는 GitHub 이슈 #1 댓글로 받는다.** 최신 댓글 읽기:
+  `gh issue view 1 --repo xunyss/inlook --json comments -q '.comments[-1] | .createdAt + "\n" + .body'`
+  (`--comments` 와 `--json` 은 같이 못 쓴다). 화면 캡처는 대화에 이미지로 온다
+- 순서: Mac 에서 수정 → `uv run pytest` → main 에 바로 commit·push → 사용자에게 VDI 실행 순서 안내
+  - 안내에는 항상 **앱 닫기 → `git pull` → (`setup.bat` 필요 여부 명시) → 실행할 .bat** 를 적는다.
+    의존성(pyproject)이 바뀐 경우에만 `setup.bat` 이 필요하다
+- git: 저장소 로컬 설정(`.git/config`)에 user.name=xunyss, user.email=xunyss@gmail.com. 전역 설정은 건드리지 않는다.
+  커밋 끝에 `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`
+- GitHub 쪽 변경(저장소 이름 변경 등 바깥으로 나가는 일)은 먼저 사용자에게 묻는다
+
+### 사용자 선호·교훈
+- 답변은 한국어. 결론 먼저, 짧게. 사용자가 이해한 내용이 조금 틀리면 바로잡아 준다
+- 추측으로 단정하지 않는다. 원인을 모르면 **측정·진단 도구를 먼저 만든다** (probe, stats, compact --dry-run 처럼).
+  예전에 근거 없이 "건당 서버 왕복" 이라고 단정했다가 정정한 적이 있다
+- 데이터를 지우거나 바꾸는 작업은 dry-run 을 먼저 주고, 되살릴 수 없는 것은 남겨 둔다 (compact 가 못 꺼내는 HTML 은 유지 등)
+- UI 는 단계가 적은 쪽을 좋아한다 (라벨 변경을 입력창 대신 서브메뉴로 바꾼 일)
+- Outlook 을 강제 종료되게 만들면 안 된다. 창 닫기 금지, Ctrl+C/[중단] 으로만 멈춘다. **다른 저장소(DM 플러그인)는 절대 건드리지 않는다**
+
+### 현재 상태
+- 이름: mailer → **inlook** 으로 변경 완료 (저장소 https://github.com/xunyss/inlook, public). 과거 커밋 이력의 옛 이름은 그대로 둔다 (사용자 결정)
+- VDI: 저장소 `D:\xdev\works\inlook` (폴더 이름 변경 예정이었음), 보존 경로 `D:\mailbox`, DB `inlook.db`
+- 데이터: 메일 625건 = Outlook 수집 531 + 예전 .msg 백업 가져오기 94. 마지막 정상 동기화 2026-10-15 11:08
+- 이 Mac 의 작업 폴더도 `.../mailer` → `.../inlook` 으로 바꿀 예정. 바꾼 뒤에는 `.venv` 를 지우고 `uv sync --python 3.12`
+  (Mac 의 .venv 안 스크립트에는 절대 경로가 박혀 있다). Claude Code 자동 메모리는 경로별이라 끊기므로 맥락은 이 파일에 둔다
+
+### 확인 대기·남은 일
+- [ ] `compact.bat` 실행 결과 확인 (dry-run: 609건 비움 가능, 1건은 RTF 형식 메일이라 DB 의 HTML 유지 — 정상). 예상 DB 약 40MB
+- [ ] 회의 요청 메일의 HTML·본문 이미지가 미리보기에 나오는지 VDI 확인 (압축 RTF 해제, `rtfhtml.py`)
+- [ ] 첨부 파일 열기/저장 기능은 아직 없다 (미리보기에 이름만). 필요하면 .msg 의 첨부를 꺼내면 된다 (`msgfile.read_attachments`)
+- [ ] 메일함 보존 기간(약 1개월) 안에 사용자가 주기적으로 동기화해야 한다. 앱은 21일 넘으면 빨간 경고
+
 ## 목적
 회사 Exchange 메일이 보존 정책으로 사라지기 전에 사본(.msg)을 남기고, 검색해서 다시 읽을 수 있게 한다.
 
@@ -158,7 +193,7 @@
 
 ## Mac 개발 명령
 ```bash
-uv sync                           # .venv 생성 + 의존성 (pytest 포함)
+uv sync --python 3.12            # .venv 생성 + 의존성 (pytest 포함)
 uv run python -m inlook probe --fake
 uv run pytest
 ```
