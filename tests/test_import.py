@@ -60,7 +60,8 @@ def test_import_labels_dedup_and_files(tmp_path, capsys):
     assert a1.attachments == ["보고서.pdf"] and a1.msg_path.is_file()
     assert a1.msg_path.read_bytes() == (src / "고객A" / "a1.msg").read_bytes()
     assert a1.received.startswith("2026-05-26 18:59")
-    assert lib.get(lib.search("루트 메일")[0].id).html_body
+    root_mail = lib.get(lib.search("루트 메일")[0].id)
+    assert root_mail.html_body == "" and "안녕" in lib.with_html(root_mail).html_body  # HTML 은 .msg 에서
     assert lib.db.execute("SELECT COUNT(*) FROM syncs").fetchone()[0] == 0  # 동기화 기준 시각에 영향 없음
     lib.close()
 

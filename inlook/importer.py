@@ -147,7 +147,7 @@ def run_import(
                 )
                 record = MailRecord(
                     header=header, sender_email=msg.sender_email, to=msg.to, cc=msg.cc, sent=msg.sent,
-                    body=msg.body, html_body=msg.html_body, attachments=msg.attachments,
+                    body=msg.body, html_body="", attachments=msg.attachments,  # HTML 은 원본 .msg 에서
                 )
                 store.add(item.key, item.key_kind, record, rel, item.labels, None)
             except Exception as exc:

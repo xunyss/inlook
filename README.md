@@ -75,6 +75,17 @@ import.bat D:\메일백업             # 가져오기 (앱은 닫고 실행)
 - 파일 이름이 아니라 `.msg` 안의 **받은 시각**(없으면 보낸 시각)을 쓴다
 - 이미 있는 메일(같은 Message-ID)과 inlook 에서 삭제한 메일은 건너뛴다. 원본 폴더는 읽기만 한다
 
+### DB 크기 확인·줄이기
+
+```
+stats.bat               # 어떤 정보가 DB 공간을 차지하는지 (크기·건수만)
+compact.bat --dry-run   # 줄일 수 있는 양 확인
+compact.bat             # HTML 본문을 DB 에서 비우고 정리 (앱은 닫고 실행)
+```
+
+- HTML 본문의 원본은 `.msg` 안에 있어서 미리보기는 `.msg` 에서 꺼낸다. DB 에는 검색용 텍스트만 둔다
+- `.msg` 에서 HTML 을 꺼낼 수 없는 메일은 DB 의 HTML 을 그대로 둔다
+
 ### 자가진단
 
 ```
@@ -103,13 +114,13 @@ probe.bat D:\mailbox    # Outlook 연결, 목록 읽기 방식, 저장 가능 �
 
 ```
 D:\mailbox\
-  inlook.db                                   메일 정보·본문 텍스트·라벨·동기화 기록 (SQLite)
+  inlook.db                                   메일 정보·검색용 본문 텍스트·라벨·동기화 기록 (SQLite)
   msg\YYYY\MM\YYYYMMDD-HHMMSS_<hash>.msg      원본 (olMSGUnicode)
 ```
 
 - 파일 이름 = 받은 시각 + 메일 키의 해시. 같은 메일은 언제 저장해도 같은 이름이다
 - 제목·폴더명을 파일 이름에 넣지 않아 Windows 260자 경로 제한이나 금지 문자 문제가 없다
-- 본문 속 이미지와 첨부는 `.msg` 안에만 있고 DB 에는 넣지 않는다
+- HTML 본문·본문 속 이미지·첨부는 `.msg` 안에만 있고 DB 에는 넣지 않는다 (미리보기 때 `.msg` 에서 꺼낸다)
 
 ## 문제 해결
 
@@ -145,6 +156,8 @@ uv run python -m inlook probe --fake
 | `inlook/store.py` | DB 스키마·저장·삭제 |
 | `inlook/library.py` | 뷰어용 조회·라벨 편집 |
 | `inlook/msgfile.py` | `.msg` 파일 읽기 (olefile) |
+| `inlook/rtfhtml.py` | 압축 RTF 안의 HTML 꺼내기 (회의 요청 등) |
 | `inlook/htmlcolor.py` | 어두운 테마 본문 색 보정 |
+| `inlook/stats.py`, `compact.py` | DB 크기 진단·줄이기 |
 | `inlook/ui.py` | PySide6 앱 |
 | `inlook/probe.py` | 자가진단 |

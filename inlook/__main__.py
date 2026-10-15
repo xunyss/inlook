@@ -58,8 +58,17 @@ def main(argv: list[str] | None = None) -> int:
     stats.add_argument("archive_root", nargs="?", type=Path, default=DEFAULT_ARCHIVE_ROOT,
                        help=f"보존 경로 (기본 {DEFAULT_ARCHIVE_ROOT})")
 
+    compact = sub.add_parser("compact", help="DB 줄이기: .msg 에 있는 HTML 본문을 DB 에서 비우고 정리")
+    compact.add_argument("archive_root", nargs="?", type=Path, default=DEFAULT_ARCHIVE_ROOT,
+                         help=f"보존 경로 (기본 {DEFAULT_ARCHIVE_ROOT})")
+    compact.add_argument("--dry-run", action="store_true", help="확인만 하고 바꾸지 않음")
+
     args = parser.parse_args(argv)
 
+    if args.command == "compact":
+        from .compact import run_compact
+
+        return run_compact(args.archive_root, dry_run=args.dry_run)
     if args.command == "stats":
         from .stats import run_stats
 

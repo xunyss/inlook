@@ -174,19 +174,17 @@ class Library:
             msg_path=self.root / Path(r[11]), labels=self._labels_for([r[0]]).get(r[0], []),
         )
 
-    def fill_html(self, mail: MailDetail) -> MailDetail:
-        """HTML 본문이 비어 있으면 .msg 에서 꺼내(압축 RTF 포함) DB 에 채워 둔다. 다음부터는 바로 나온다."""
-        if mail.html_body or not mail.msg_path.exists():
-            return mail
-        try:
-            html = read_html(mail.msg_path)
-        except Exception:
-            return mail
-        if not html:
-            return mail
-        with self.db:
-            self.db.execute("UPDATE mails SET html_body = ? WHERE id = ?", (html, mail.id))
-        return replace(mail, html_body=html)
+    def with_html(self, mail: MailDetail) -> MailDetail:
+        """미리보기용 HTML. 원본 .msg 에서 꺼낸다 (PR_HTML, 없으면 압축 RTF 안의 HTML).
+        .msg 에서 못 꺼내는 메일만 DB 의 html_body 를 쓴다. DB 에는 HTML 을 되도록 두지 않는다 (용량)."""
+        if mail.msg_path.exists():
+            try:
+                html = read_html(mail.msg_path)
+            except Exception:
+                html = ""
+            if html:
+                return replace(mail, html_body=html)
+        return mail
 
     # --- 라벨 편집 ---
 

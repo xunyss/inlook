@@ -120,8 +120,11 @@
   테스트용 .msg 는 `tests/cfb.py` 가 합성으로 만든다
 - **회의 요청 등 HTMLBody 가 없는 항목** (2026-10-15): COM 의 MeetingItem 은 HTMLBody 를 주지 않아 텍스트 본문만 저장됐었다.
   .msg 의 압축 RTF(PR_RTF_COMPRESSED) 를 풀고(LZFu) 감싼 HTML(\\fromhtml1) 을 꺼낸다 (`rtfhtml.py`).
-  수집 때는 저장한 .msg 에서 바로 채우고, 이미 저장된 메일은 미리보기 때 채워 DB 에 남긴다 (`Library.fill_html`).
   가져오기도 PR_HTML 이 없으면 같은 방법을 쓴다
+- **HTML 본문은 DB 에 넣지 않는다** (2026-10-15, stats 결과: DB 331MB 중 html_body 295MB, 중간값 354KB/통).
+  미리보기는 원본 .msg 에서 HTML 을 꺼낸다 (`Library.with_html`). 수집 때 저장한 .msg 에서 HTML 을 못 꺼내는
+  메일만 COM 의 HTMLBody 를 DB 에 남긴다. 기존 DB 는 `compact.bat` 으로 비우고 VACUUM (못 꺼내는 메일은 유지).
+  검색은 본문 텍스트(body)로 하므로 영향 없다. `stats.bat` 으로 열별 용량 확인
 - **어두운 테마에서 본문 색 보정** (2026-10-15, 사용자 요청): 짙은 글자색은 밝기를 뒤집어 밝게, 밝은 배경색은 어둡게
   (`htmlcolor.darken_html`, 색상은 유지 — Outlook 다크 모드와 같은 방식). 미리보기의 ☀ 버튼으로 흰 배경 원본 보기
 - `library.py` 에 DB 조회·라벨 편집을 모아 Qt 없이 테스트한다. UI 는 pytest-qt offscreen 스모크 테스트

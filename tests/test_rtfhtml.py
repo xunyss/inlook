@@ -99,37 +99,79 @@ def test_vml_conditional_image_is_requested_by_viewer(qtbot):
     assert "cid:image001.png@01DB" in requested
 
 
-def test_meeting_request_html_comes_from_msg_and_is_cached(tmp_path):
+def _meeting_msg():
+    return {
+        "__substg1.0_0037001F": "회의".encode("utf-16-le"),
+        "__substg1.0_10090102": compress(RTF),
+        "__properties_version1.0": b"\0" * 32,
+    }
+
+
+def test_html_is_read_from_msg_not_stored_in_db(tmp_path):
     from inlook.collect import run_collect
     from inlook.fake import FakeMailSource
     from inlook.library import Library
     from inlook.msgfile import read_html
     from tests.cfb import write_cfb
 
-    meeting_msg = {
-        "__substg1.0_0037001F": "회의".encode("utf-16-le"),
-        "__substg1.0_10090102": compress(RTF),
-        "__properties_version1.0": b"\0" * 32,
-    }
     path = tmp_path / "m.msg"
-    write_cfb(path, meeting_msg)
+    write_cfb(path, _meeting_msg())
     assert "가나 한글 text" in read_html(path)
 
-    # COM 이 HTMLBody 를 주지 않은 회의 요청: 수집 때 저장한 .msg 에서 채운다
+    # 저장한 .msg 에서 HTML 을 꺼낼 수 있으면 DB 에는 HTML 을 넣지 않는다
     source = FakeMailSource()
-    target = next(r for r in source._by_id.values() if r.header.message_class.startswith("IPM.Schedule"))
-    target.html_body = ""
-    source.save_msg = lambda record, p: write_cfb(p, meeting_msg)
+    source.save_msg = lambda record, p: write_cfb(p, _meeting_msg())
     root = tmp_path / "archive"
     run_collect(lambda: source, root)
     lib = Library(root)
-    row = lib.search("분기 리뷰")[0]
-    assert "가나 한글 text" in lib.get(row.id).html_body
+    assert lib.db.execute("SELECT COUNT(*) FROM mails WHERE html_body != ''").fetchone()[0] == 0
+    mail = lib.get(lib.search("분기 리뷰")[0].id)
+    assert mail.html_body == ""
+    assert "cid:image001.png@01DB" in lib.with_html(mail).html_body
+    lib.close()
 
-    # 이미 HTML 없이 저장된 메일: 미리보기 때 채우고 DB 에 남긴다
-    lib.db.execute("UPDATE mails SET html_body = '' WHERE id = ?", (row.id,))
+
+def test_html_kept_in_db_when_msg_cannot_provide_it(tmp_path):
+    from inlook.collect import run_collect
+    from inlook.fake import FakeMailSource
+    from inlook.library import Library
+
+    root = tmp_path / "archive"
+    run_collect(lambda: FakeMailSource(), root)  # 가짜 .msg 는 OLE 파일이 아니다
+    lib = Library(root)
+    mail = lib.get(lib.search("News Letter 1")[0].id)
+    assert mail.html_body and lib.with_html(mail).html_body == mail.html_body
+    lib.close()
+
+
+def test_compact_clears_only_recoverable_html_and_shrinks(tmp_path, capsys):
+    from inlook.collect import run_collect
+    from inlook.compact import run_compact
+    from inlook.fake import FakeMailSource
+    from inlook.library import Library
+    from inlook.store import DB_NAME
+    from tests.cfb import write_cfb
+
+    root = tmp_path / "archive"
+    run_collect(lambda: FakeMailSource(), root)
+    lib = Library(root)
+    big = "<p>" + "x" * 200_000 + "</p>"
+    lib.db.execute("UPDATE mails SET html_body = ?", (big,))
     lib.db.commit()
-    filled = lib.fill_html(lib.get(row.id))
-    assert "cid:image001.png@01DB" in filled.html_body
-    assert lib.get(row.id).html_body == filled.html_body
+    rows = lib.db.execute("SELECT id, msg_path FROM mails ORDER BY id").fetchall()
+    for _, rel in rows[:60]:  # 60건만 .msg 에서 HTML 을 꺼낼 수 있다
+        write_cfb(root / rel, _meeting_msg())
+    lib.close()
+    before = (root / DB_NAME).stat().st_size
+
+    assert run_compact(root, dry_run=True) == 0
+    assert (root / DB_NAME).stat().st_size == before
+
+    assert run_compact(root) == 0
+    out = capsys.readouterr().out
+    assert "60건 → DB 에서 비움" in out and f"{len(rows) - 60}건 → 그대로 둠" in out
+    assert (root / DB_NAME).stat().st_size < before / 2
+    lib = Library(root)
+    kept = lib.db.execute("SELECT COUNT(*) FROM mails WHERE html_body != ''").fetchone()[0]
+    assert kept == len(rows) - 60
     lib.close()

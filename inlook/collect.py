@@ -276,12 +276,14 @@ class _Collector:
                     source.save_msg(record, path)
                 except Exception as exc:
                     raise _Step("E109", exc) from exc
-                if not record.html_body:
-                    # 회의 요청 등은 COM 이 HTMLBody 를 주지 않는다. 저장한 .msg 의 압축 RTF 에서 꺼낸다
-                    try:
-                        record.html_body = read_html(path)
-                    except Exception:
-                        pass
+                # HTML 은 DB 에 넣지 않는다 (메일당 수백 KB). 미리보기는 .msg 에서 꺼낸다.
+                # 저장한 .msg 에서 HTML 을 못 꺼내는 경우에만 COM 이 준 HTML 을 DB 에 남긴다.
+                try:
+                    from_msg = read_html(path)
+                except Exception:
+                    from_msg = ""
+                if from_msg:
+                    record.html_body = ""
                 try:
                     self.store.add(cand.key, cand.key_kind, record, rel, cand.labels, self.sync_id)
                 except Exception as exc:
