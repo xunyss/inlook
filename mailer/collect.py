@@ -223,7 +223,7 @@ class _Collector:
                 out.result(WARN, "C4", f"{folder_id} 목록 읽기 실패 ({rows}행까지 읽음)",
                            code="E104", details=[self.err(exc)])
             self.listed += rows
-        pending = [c for c in candidates.values() if not self.store.has(c.key)]
+        pending = [c for c in candidates.values() if not self.store.known(c.key)]
         pending.sort(key=lambda c: c.header.received or datetime.min)
         self.new = len(pending)
         details = [f"목록 {self.listed:,}행, 서로 다른 메일 {len(candidates):,}건, 새 메일 {self.new:,}건"]

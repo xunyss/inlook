@@ -58,6 +58,12 @@ CREATE TABLE IF NOT EXISTS mail_labels (
     PRIMARY KEY (mail_id, label_id)
 );
 
+-- 사용자가 mailer 에서 삭제한 메일의 키. 내용은 남기지 않는다. 다음 동기화가 다시 수집하지 않게 한다
+CREATE TABLE IF NOT EXISTS deleted (
+    key        TEXT PRIMARY KEY,
+    deleted_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS syncs (
     id       INTEGER PRIMARY KEY,
     started  TEXT NOT NULL,
@@ -144,6 +150,42 @@ class Store:
 
     def has(self, key: str) -> bool:
         return self.db.execute("SELECT 1 FROM mails WHERE key = ?", (key,)).fetchone() is not None
+
+    def known(self, key: str) -> bool:
+        """저장돼 있거나 사용자가 삭제한 메일. 동기화는 이것만 건너뛴다."""
+        return self.has(key) or self.db.execute(
+            "SELECT 1 FROM deleted WHERE key = ?", (key,)
+        ).fetchone() is not None
+
+    def delete_mails(self, mail_ids: list[int]) -> list[int]:
+        """.msg 파일과 DB 기록을 지운다. 파일을 못 지운 메일(다른 프로그램이 열고 있음 등)은
+        DB 에 그대로 두고 그 id 를 돌려준다."""
+        failed: list[int] = []
+        for mail_id in mail_ids:
+            row = self.db.execute("SELECT key, msg_path FROM mails WHERE id = ?", (mail_id,)).fetchone()
+            if row is None:
+                continue
+            key, rel = row
+            path = self.root / Path(rel)
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                failed.append(mail_id)
+                continue
+            with self.db:
+                self.db.execute(
+                    "INSERT OR REPLACE INTO deleted (key, deleted_at) VALUES (?, ?)", (key, _ts(datetime.now()))
+                )
+                self.db.execute("DELETE FROM mail_labels WHERE mail_id = ?", (mail_id,))
+                self.db.execute("DELETE FROM mails WHERE id = ?", (mail_id,))
+            for folder in (path.parent, path.parent.parent):  # 비어 버린 YYYY/MM 폴더 정리
+                try:
+                    folder.rmdir()
+                except OSError:
+                    break
+        with self.db:
+            self.db.execute("DELETE FROM labels WHERE id NOT IN (SELECT DISTINCT label_id FROM mail_labels)")
+        return failed
 
     def add(
         self,

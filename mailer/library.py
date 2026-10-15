@@ -188,6 +188,10 @@ class Library:
             )
         return name
 
+    def delete_mails(self, mail_ids: list[int]) -> list[int]:
+        """.msg + DB 삭제. 다음 동기화에서 다시 수집하지 않는다. 못 지운 id 목록을 돌려준다."""
+        return self.store.delete_mails(mail_ids)
+
     def remove_label(self, mail_ids: list[int], name: str) -> None:
         with self.db:
             self.db.executemany(

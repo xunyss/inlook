@@ -92,3 +92,34 @@ def test_tree_counts_include_children(lib):
         assert totals[path] >= direct
     assert totals["받은 편지함"] + totals["보낸 편지함"] + totals["보관"] == lib.count()
     assert totals["받은 편지함/프로젝트A"] == 15
+
+
+def test_delete_removes_db_row_and_file_and_is_not_recollected(lib, tmp_path):
+    rows = lib.search("News Letter")[:2]
+    paths = [lib.get(r.id).msg_path for r in rows]
+    before = lib.count()
+    assert lib.delete_mails([r.id for r in rows]) == []
+    assert lib.count() == before - 2
+    assert all(not p.exists() for p in paths)
+    assert all(lib.get(r.id) is None for r in rows)
+
+    run_collect(lambda: FakeMailSource(NOW), tmp_path, full=True)
+    assert lib.count() == before - 2  # 다시 수집하지 않는다
+
+
+def test_delete_keeps_mail_when_file_cannot_be_removed(lib, monkeypatch):
+    row = lib.search()[0]
+    path = lib.get(row.id).msg_path
+
+    def locked(self, missing_ok=False):
+        raise PermissionError("in use")
+
+    monkeypatch.setattr(type(path), "unlink", locked)
+    assert lib.delete_mails([row.id]) == [row.id]
+    assert lib.get(row.id) is not None
+
+
+def test_deleting_last_mail_of_label_drops_label(lib):
+    ids = [r.id for r in lib.search(label="받은 편지함/프로젝트A/회의록")]
+    lib.delete_mails(ids)
+    assert "받은 편지함/프로젝트A/회의록" not in lib.label_counts()

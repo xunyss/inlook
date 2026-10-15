@@ -67,3 +67,14 @@ def test_sync_can_be_cancelled(qtbot, window):
     dialog._stop()
     qtbot.waitUntil(lambda: not dialog.running, timeout=10000)
     assert dialog.result_code in (0, 130)
+
+
+def test_delete_from_ui(qtbot, window, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    _sync(qtbot, window)
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: QMessageBox.StandardButton.Yes)
+    window.table.selectRow(0)
+    window.delete_selected()
+    assert window.model.rowCount() == 105
+    assert "105" in window.info.text()

@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, QThread, QTimer, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QFont, QFontDatabase, QTextCursor
+from PySide6.QtGui import QDesktopServices, QFont, QFontDatabase, QKeySequence, QShortcut, QTextCursor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -332,6 +332,9 @@ class MainWindow(QMainWindow):
         self.table.doubleClicked.connect(lambda _: self.open_msg())
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._table_menu)
+        delete = QShortcut(QKeySequence(QKeySequence.StandardKey.Delete), self.table)
+        delete.setContext(Qt.ShortcutContext.WidgetShortcut)
+        delete.activated.connect(self.delete_selected)
 
         # 오른쪽: 미리보기
         self.preview = Preview(self.open_msg, self.edit_labels)
@@ -492,10 +495,35 @@ class MainWindow(QMainWindow):
         if not ids:
             return
         menu = self._label_menu(ids)
+        menu.addSeparator()
         if len(ids) == 1:
-            menu.addSeparator()
             menu.addAction(".msg 열기 (Outlook)", self.open_msg)
+        menu.addAction(f"삭제 ({len(ids)}건)\tDel", self.delete_selected)
         menu.exec(self.table.viewport().mapToGlobal(pos))
+
+    def delete_selected(self) -> None:
+        ids = self.selected_ids()
+        if not ids:
+            return
+        answer = QMessageBox.warning(
+            self,
+            "메일 삭제",
+            f"선택한 {len(ids)}건을 삭제할까요?\n\n"
+            ".msg 파일과 DB 기록이 모두 지워지고 되돌릴 수 없습니다.\n"
+            "Outlook 에 남아 있어도 다음 동기화에서 다시 가져오지 않습니다.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        failed = self.lib.delete_mails(ids)
+        self.refresh_all()
+        if failed:
+            QMessageBox.warning(
+                self, "메일 삭제",
+                f"{len(failed)}건은 .msg 파일을 지우지 못해 남겨 두었습니다.\n"
+                "Outlook 등에서 그 파일을 열고 있다면 닫은 뒤 다시 삭제하세요.",
+            )
 
     def _tree_menu(self, pos) -> None:
         item = self.tree.itemAt(pos)
