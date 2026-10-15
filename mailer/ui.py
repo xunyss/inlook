@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, QThread, QTimer, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QFont, QFontDatabase, QKeySequence, QShortcut, QTextCursor
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontDatabase, QKeySequence, QPalette, QShortcut, QTextCursor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
 )
 
 from .collect import run_collect
+from .htmlcolor import darken_html
 from .library import ALL, UNLABELED, Library, MailRow
 from .source import MailSource
 
@@ -234,9 +235,24 @@ class Preview(QWidget):
         self.body = QTextBrowser()
         self.body.setOpenLinks(False)  # 링크를 눌러도 이 창에서 이동하지 않는다
         self.body.anchorClicked.connect(self._link)
+        self._mail = None
+        # 어두운 테마면 본문 색을 보정해서 보여주고, ☀ 를 누르면 흰 배경 원본으로 (Outlook 의 배경 전환과 같음)
+        self.dark = QApplication.palette().color(QPalette.ColorRole.Base).lightness() < 128
+        self.paper_btn = QPushButton("☀")
+        self.paper_btn.setCheckable(True)
+        self.paper_btn.setToolTip("본문을 흰 배경(원래 색)으로 보기")
+        self.paper_btn.setFixedWidth(36)
+        self.paper_btn.setVisible(self.dark)
+        self.paper_btn.toggled.connect(self._render_body)
+        self._dark_palette = self.body.palette()
+        self._paper_palette = QPalette(self._dark_palette)
+        for group in (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive, QPalette.ColorGroup.Disabled):
+            self._paper_palette.setColor(group, QPalette.ColorRole.Base, QColor("white"))
+            self._paper_palette.setColor(group, QPalette.ColorRole.Text, QColor("black"))
 
         buttons = QHBoxLayout()
         buttons.addStretch(1)
+        buttons.addWidget(self.paper_btn)
         buttons.addWidget(self.label_btn)
         buttons.addWidget(self.open_btn)
         layout = QVBoxLayout(self)
@@ -247,6 +263,7 @@ class Preview(QWidget):
         self.clear()
 
     def clear(self) -> None:
+        self._mail = None
         self.header.setText("")
         self.body.clear()
         self.open_btn.setEnabled(False)
@@ -269,12 +286,21 @@ class Preview(QWidget):
             f"<div style='font-size:14pt;font-weight:bold'>{html.escape(mail.subject or '(제목 없음)')}</div>"
             f"<table>{''.join(rows)}</table>"
         )
-        if mail.html_body:
-            self.body.setHtml(mail.html_body)
-        else:
-            self.body.setPlainText(mail.body)
+        self._mail = mail
+        self._render_body()
         self.open_btn.setEnabled(mail.msg_path.exists())
         self.label_btn.setEnabled(True)
+
+    def _render_body(self) -> None:
+        mail = self._mail
+        if mail is None:
+            return
+        paper = not self.dark or self.paper_btn.isChecked()
+        self.body.setPalette(self._paper_palette if paper and self.dark else self._dark_palette)
+        if mail.html_body:
+            self.body.setHtml(mail.html_body if paper else darken_html(mail.html_body))
+        else:
+            self.body.setPlainText(mail.body)
 
     def _link(self, url: QUrl) -> None:
         if url.scheme() in ("http", "https", "mailto"):
