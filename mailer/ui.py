@@ -96,6 +96,10 @@ class MailModel(QAbstractTableModel):
         return None
 
 
+def _menu_text(text: str) -> str:
+    return text.replace("&", "&&")  # 메뉴에서 & 는 단축키 표시라서
+
+
 def _short(label: str) -> str:
     return label.rsplit("/", 1)[-1]
 
@@ -225,7 +229,7 @@ class Preview(QWidget):
         self.header.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.open_btn = QPushButton(".msg 열기")
         self.open_btn.clicked.connect(open_msg)
-        self.label_btn = QPushButton("라벨 변경…")
+        self.label_btn = QPushButton("라벨 변경 ▾")
         self.label_btn.clicked.connect(edit_labels)
         self.body = QTextBrowser()
         self.body.setOpenLinks(False)  # 링크를 눌러도 이 창에서 이동하지 않는다
@@ -460,35 +464,58 @@ class MainWindow(QMainWindow):
         ids = self.selected_ids()
         if not ids:
             return
-        self._change_label(ids)
+        btn = self.preview.label_btn
+        self._label_submenu(QMenu(self), ids).exec(btn.mapToGlobal(btn.rect().bottomLeft()))
 
     # 화면에서는 메일당 라벨 하나만 다룬다 (사용자 결정 2026-10-15). DB 는 여러 개를 담을 수 있는 구조 그대로.
 
-    def _label_menu(self, ids: list[int]) -> QMenu:
-        menu = QMenu(self)
-        menu.addAction("라벨 변경…", lambda: self._change_label(ids))
+    def _label_submenu(self, menu: QMenu, ids: list[int]) -> QMenu:
+        """라벨 트리를 그대로 서브메뉴로. 고르면 바로 바뀐다 (기존 라벨은 떼어짐)."""
+        current = {label for r in self.model.rows if r.id in ids for label in r.labels}
+        names = sorted(self.lib.label_counts())
+        has_children = {n.rsplit("/", 1)[0] for n in names if "/" in n}
+        menus: dict[str, QMenu] = {"": menu}
+
+        def parent_menu(path: str) -> QMenu:
+            if path in menus:
+                return menus[path]
+            parent, _, leaf = path.rpartition("/")
+            sub = parent_menu(parent).addMenu(_menu_text(leaf))
+            menus[path] = sub
+            return sub
+
+        for name in names:
+            parent, _, leaf = name.rpartition("/")
+            target = parent_menu(name) if name in has_children else parent_menu(parent)
+            action = target.addAction(_menu_text(leaf))
+            action.setCheckable(True)
+            action.setChecked(name in current)
+            action.triggered.connect(lambda _=False, n=name: self._apply_label(ids, n))
+            if name in has_children:
+                target.addSeparator()
+        menu.addSeparator()
+        menu.addAction("새 라벨…", lambda: self._new_label(ids))
         return menu
 
-    def _change_label(self, ids: list[int]) -> None:
-        names = sorted(self.lib.label_counts())
-        current = {label for r in self.model.rows if r.id in ids for label in r.labels}
-        start = names.index(next(iter(current))) if len(current) == 1 and next(iter(current)) in names else 0
-        name, ok = QInputDialog.getItem(
-            self, "라벨 변경",
-            f"{len(ids)}건의 라벨을 바꿉니다. 기존 라벨은 떼어집니다.\n('/' 로 하위 라벨, 새 이름을 입력해도 됩니다)",
-            names, start, True,
+    def _new_label(self, ids: list[int]) -> None:
+        name, ok = QInputDialog.getText(
+            self, "새 라벨", f"{len(ids)}건에 붙일 새 라벨 (기존 라벨은 떼어집니다, '/' 로 하위 라벨):"
         )
         if ok and name.strip():
-            self.lib.set_label(ids, name)
-            self.refresh_labels()
-            self.refresh_list()
-            self._mail_selected()
+            self._apply_label(ids, name)
+
+    def _apply_label(self, ids: list[int], name: str) -> None:
+        self.lib.set_label(ids, name)
+        self.refresh_labels()
+        self.refresh_list()
+        self._mail_selected()
 
     def _table_menu(self, pos) -> None:
         ids = self.selected_ids()
         if not ids:
             return
-        menu = self._label_menu(ids)
+        menu = QMenu(self)
+        self._label_submenu(menu.addMenu("라벨 변경"), ids)
         menu.addSeparator()
         if len(ids) == 1:
             menu.addAction(".msg 열기 (Outlook)", self.open_msg)

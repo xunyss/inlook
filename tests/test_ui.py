@@ -80,12 +80,30 @@ def test_delete_from_ui(qtbot, window, monkeypatch):
     assert "105" in window.info.text()
 
 
-def test_change_label_from_ui(qtbot, window, monkeypatch):
-    from PySide6.QtWidgets import QInputDialog
+def _actions(menu):
+    for action in menu.actions():
+        if action.menu():
+            yield from _actions(action.menu())
+        elif action.text():
+            yield action
+
+
+def test_change_label_from_submenu(qtbot, window, monkeypatch):
+    from PySide6.QtWidgets import QInputDialog, QMenu
 
     _sync(qtbot, window)
-    monkeypatch.setattr(QInputDialog, "getItem", lambda *a, **k: ("새 라벨", True))
     window.table.selectRow(0)
     mail_id = window.selected_ids()[0]
-    window.edit_labels()
+    before = window.lib.get(mail_id).labels
+
+    menu = window._label_submenu(QMenu(), [mail_id])
+    actions = {a.text(): a for a in _actions(menu)}
+    assert {"받은 편지함", "프로젝트A", "회의록", "보낸 편지함", "새 라벨…"} <= set(actions)
+    assert [a.text() for a in _actions(menu) if a.isChecked()] == [b.rsplit("/", 1)[-1] for b in before]
+
+    actions["회의록"].trigger()
+    assert window.lib.get(mail_id).labels == ["받은 편지함/프로젝트A/회의록"]
+
+    monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: ("새 라벨", True))
+    {a.text(): a for a in _actions(window._label_submenu(QMenu(), [mail_id]))}["새 라벨…"].trigger()
     assert window.lib.get(mail_id).labels == ["새 라벨"]
