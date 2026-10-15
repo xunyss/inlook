@@ -28,7 +28,7 @@
 
 ## 결정 사항 (2026-10-13)
 - 주력: **Python(>=3.12) + pywin32 로 Outlook COM 자동화**. VBA는 필요시 "도착 즉시 저장" 보조
-- 의존성 최소화: pywin32(수집), PySide6(뷰어) 외에는 표준 라이브러리(sqlite3 등)
+- 의존성 최소화: pywin32(수집), PySide6(뷰어), olefile(.msg 읽기, 순수 파이썬) 외에는 표준 라이브러리(sqlite3 등)
 - pywin32는 Windows 전용 → `sys_platform == 'win32'` 마커로 Mac 개발 환경과 공존
 - `[tool.uv] package = false` — 패키지로 설치하지 않고 저장소 루트에서 `python -m mailer` 로 실행
 - 뷰어는 **자체 데스크톱 UI (PySide6)**. 브라우저·로컬 웹서버 방식은 쓰지 않는다
@@ -115,6 +115,9 @@
 - 동기화: 작업 스레드(QThread)에서 `run_collect` + `pythoncom.CoInitialize`. [중단]은 cancel 이벤트 →
   저장 중인 한 건을 마치고 멈춘다 (Ctrl+C 와 같은 처리). 동기화 창은 끝날 때까지 닫을 수 없다
 - 마지막 정상 동기화가 21일 이상 지나면 상단 표시를 빨갛게
+- **본문 이미지** (2026-10-15): 본문의 `cid:` 이미지는 미리보기 때 .msg 에서 첨부를 꺼내 보여준다 (`msgfile.py`, olefile).
+  DB 에는 첨부 내용을 넣지 않는다 (.msg 가 원본). 원격(http) 이미지는 불러오지 않는다.
+  테스트용 .msg 는 `tests/cfb.py` 가 합성으로 만든다
 - **어두운 테마에서 본문 색 보정** (2026-10-15, 사용자 요청): 짙은 글자색은 밝기를 뒤집어 밝게, 밝은 배경색은 어둡게
   (`htmlcolor.darken_html`, 색상은 유지 — Outlook 다크 모드와 같은 방식). 미리보기의 ☀ 버튼으로 흰 배경 원본 보기
 - `library.py` 에 DB 조회·라벨 편집을 모아 Qt 없이 테스트한다. UI 는 pytest-qt offscreen 스모크 테스트

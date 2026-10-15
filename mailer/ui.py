@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, QThread, QTimer, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontDatabase, QKeySequence, QPalette, QShortcut, QTextCursor
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontDatabase, QImage, QKeySequence, QPalette, QShortcut, QTextCursor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
 
 from .collect import run_collect
 from .htmlcolor import darken_html
+from .msgfile import inline_images
 from .library import ALL, UNLABELED, Library, MailRow
 from .source import MailSource
 
@@ -221,6 +222,26 @@ class SyncDialog(QDialog):
 # ---------------------------------------------------------------- 미리보기
 
 
+class MailBody(QTextBrowser):
+    """본문 표시. 'cid:' 이미지는 .msg 의 첨부에서 꺼내 보여준다. 원격(http) 이미지는 불러오지 않는다."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.images: dict[str, bytes] = {}
+
+    def loadResource(self, kind: int, url: QUrl):  # noqa: N802
+        if url.scheme().lower() == "cid":
+            data = self.images.get(url.path()) or self.images.get(url.path().split("@", 1)[0])
+            if data:
+                image = QImage.fromData(data)
+                if not image.isNull():
+                    return image
+            return None
+        if url.scheme().lower() in ("http", "https"):
+            return None
+        return super().loadResource(kind, url)
+
+
 class Preview(QWidget):
     def __init__(self, open_msg: Callable[[], None], edit_labels: Callable[[], None]) -> None:
         super().__init__()
@@ -232,7 +253,7 @@ class Preview(QWidget):
         self.open_btn.clicked.connect(open_msg)
         self.label_btn = QPushButton("라벨 변경 ▾")
         self.label_btn.clicked.connect(edit_labels)
-        self.body = QTextBrowser()
+        self.body = MailBody()
         self.body.setOpenLinks(False)  # 링크를 눌러도 이 창에서 이동하지 않는다
         self.body.anchorClicked.connect(self._link)
         self._mail = None
@@ -295,6 +316,12 @@ class Preview(QWidget):
         mail = self._mail
         if mail is None:
             return
+        self.body.images = {}
+        if "cid:" in mail.html_body and mail.msg_path.exists():
+            try:
+                self.body.images = inline_images(mail.msg_path)
+            except Exception:
+                pass  # 이미지가 안 보일 뿐 본문은 보여준다
         paper = not self.dark or self.paper_btn.isChecked()
         self.body.setPalette(self._paper_palette if paper and self.dark else self._dark_palette)
         if mail.html_body:
