@@ -131,3 +131,12 @@ def test_set_label_replaces_existing_labels(lib):
     for mail_id in ids:
         assert lib.get(mail_id).labels == ["보관함/뉴스"]
     assert len(lib.search(label="받은 편지함/뉴스레터")) == 27
+
+
+def test_stats_reports_sizes_without_content(lib, tmp_path, capsys):
+    from inlook.stats import run_stats
+
+    assert run_stats(tmp_path) == 0
+    out = capsys.readouterr().out
+    assert "html_body" in out and "메일 106건" in out
+    assert "주간 업무" not in out and "홍길동" not in out

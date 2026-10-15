@@ -54,8 +54,16 @@ def main(argv: list[str] | None = None) -> int:
                      help="라벨 앞에 붙일 상위 라벨 (기본 '받은 편지함', 빈 문자열이면 폴더 이름만)")
     imp.add_argument("--dry-run", action="store_true", help="읽기만 하고 가져오지 않음")
 
+    stats = sub.add_parser("stats", help="DB 크기 진단 (어떤 열이 공간을 차지하는지)")
+    stats.add_argument("archive_root", nargs="?", type=Path, default=DEFAULT_ARCHIVE_ROOT,
+                       help=f"보존 경로 (기본 {DEFAULT_ARCHIVE_ROOT})")
+
     args = parser.parse_args(argv)
 
+    if args.command == "stats":
+        from .stats import run_stats
+
+        return run_stats(args.archive_root)
     if args.command == "import":
         from .importer import run_import
 
