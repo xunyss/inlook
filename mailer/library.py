@@ -1,6 +1,7 @@
 """뷰어가 쓰는 DB 조회·라벨 편집. Qt 를 모른다 (Mac 에서 테스트).
 
-라벨은 '/' 로 나뉜 경로처럼 다룬다. 'A' 로 거르면 'A' 와 'A/...' 가 모두 걸린다.
+라벨은 '/' 로 나뉜 경로처럼 다룬다. 'A' 로 거르면 'A' 가 직접 붙은 메일만 나온다 ('A/...' 제외).
+이름 바꾸기·삭제는 하위 라벨까지 함께 한다.
 """
 
 from __future__ import annotations
@@ -113,11 +114,12 @@ class Library:
         if label == UNLABELED:
             where.append("NOT EXISTS (SELECT 1 FROM mail_labels x WHERE x.mail_id = m.id)")
         elif label is not None:
+            # 그 라벨이 직접 붙은 메일만. 하위 라벨의 메일은 넣지 않는다 (사용자 결정 2026-10-15)
             where.append(
                 """EXISTS (SELECT 1 FROM mail_labels x JOIN labels y ON y.id = x.label_id
-                          WHERE x.mail_id = m.id AND (y.name = ? OR y.name LIKE ? ESCAPE '\\'))"""
+                          WHERE x.mail_id = m.id AND y.name = ?)"""
             )
-            args.extend([label, _escape_like(label) + "/%"])
+            args.append(label)
         sql = (
             "SELECT m.id, m.received, m.sender_name, m.sender_email, m.subject, m.attachments FROM mails m"
             + (" WHERE " + " AND ".join(where) if where else "")

@@ -376,8 +376,8 @@ class MainWindow(QMainWindow):
         self.tree.addTopLevelItem(all_item)
         self.tree.addTopLevelItem(none_item)
         nodes: dict[str, QTreeWidgetItem] = {}
-        counts = self.lib.label_counts()  # 그 라벨에 직접 붙은 수
-        totals = self.lib.tree_counts()  # 하위 라벨 포함 (목록에 보이는 수)
+        counts = self.lib.label_counts()  # 그 라벨에 직접 붙은 수 (눌렀을 때 목록에 보이는 수)
+        totals = self.lib.tree_counts()  # 하위 라벨 포함
         for name in sorted(counts):
             parts = name.split("/")
             for depth in range(1, len(parts) + 1):
@@ -385,9 +385,9 @@ class MainWindow(QMainWindow):
                 if path in nodes:
                     continue
                 total, own = totals.get(path, 0), counts.get(path, 0)
-                item = QTreeWidgetItem([f"{parts[depth - 1]} ({total:,})"])
+                item = QTreeWidgetItem([f"{parts[depth - 1]} ({own:,})"])
                 if total != own:
-                    item.setToolTip(0, f"하위 라벨 포함 {total:,}건 · 이 라벨에 직접 {own:,}건")
+                    item.setToolTip(0, f"이 라벨 {own:,}건 · 하위 라벨 포함 {total:,}건")
                 item.setData(0, ROLE_LABEL, ("label", path))
                 parent = nodes.get("/".join(parts[:depth - 1]))
                 (parent.addChild(item) if parent else self.tree.addTopLevelItem(item))

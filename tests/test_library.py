@@ -41,17 +41,19 @@ def test_like_wildcards_are_literal(lib):
     assert lib.search("_") == []
 
 
-def test_label_filter_includes_children(lib):
+def test_label_filter_is_exact_not_children(lib):
     parent = lib.search(label="받은 편지함/프로젝트A")
     child = lib.search(label="받은 편지함/프로젝트A/회의록")
-    assert len(parent) == 15 and len(child) == 5
+    assert len(parent) == 10 and len(child) == 5
+    assert not {r.id for r in parent} & {r.id for r in child}
     assert lib.search(label=UNLABELED) == []
 
 
 def test_add_remove_label_and_unlabeled(lib):
     ids = [r.id for r in lib.search("News Letter")][:3]
     assert lib.add_label(ids, " 읽을거리 / 나중에 ") == "읽을거리/나중에"
-    assert {r.id for r in lib.search(label="읽을거리")} == set(ids)
+    assert {r.id for r in lib.search(label="읽을거리/나중에")} == set(ids)
+    assert lib.search(label="읽을거리") == []
 
     for name in lib.get(ids[0]).labels:
         lib.remove_label([ids[0]], name)
@@ -64,7 +66,8 @@ def test_rename_label_moves_children_and_merges(lib):
     counts = lib.label_counts()
     assert "받은 편지함/프로젝트A" not in counts
     assert counts["고객/A"] == 10 and counts["고객/A/회의록"] == 5
-    assert len(lib.search(label="고객")) == 15
+    assert lib.search(label="고객") == []
+    assert len(lib.search(label="고객/A")) == 10
 
 
 def test_delete_label_keeps_mail(lib):
@@ -82,8 +85,10 @@ def test_get_returns_detail_with_msg_path(lib):
     assert mail.labels == ["받은 편지함"]
 
 
-def test_tree_counts_match_list_size(lib):
+def test_tree_counts_include_children(lib):
     totals = lib.tree_counts()
     for path in ("받은 편지함", "받은 편지함/프로젝트A", "보낸 편지함"):
-        assert totals[path] == len(lib.search(label=path))
+        direct = len(lib.search(label=path))
+        assert totals[path] >= direct
     assert totals["받은 편지함"] + totals["보낸 편지함"] + totals["보관"] == lib.count()
+    assert totals["받은 편지함/프로젝트A"] == 15
