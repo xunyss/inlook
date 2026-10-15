@@ -1,4 +1,4 @@
-"""python -m mailer <명령>"""
+"""python -m inlook <명령>"""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ def _outlook_source():
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="mailer")
+    parser = argparse.ArgumentParser(prog="inlook")
     sub = parser.add_subparsers(dest="command", required=True)
 
     probe = sub.add_parser("probe", help="VDI 자가진단")

@@ -180,7 +180,7 @@ def _run(
 
     out.line(RULE)
     out.line(
-        f" mailer probe v4   {datetime.now():%Y-%m-%d %H:%M:%S}   "
+        f" inlook probe v4   {datetime.now():%Y-%m-%d %H:%M:%S}   "
         f"(rows={rows}, deep={deep}, 기본 사서함만)"
     )
     out.line(RULE)
@@ -411,12 +411,12 @@ def _probe_save(
 ) -> None:
     t = time.perf_counter()
     base = archive_root if archive_root and archive_root.is_dir() else None
-    work = Path(tempfile.mkdtemp(prefix="mailer-probe-", dir=base))
+    work = Path(tempfile.mkdtemp(prefix="inlook-probe-", dir=base))
     try:
         out.begin(".msg 저장")
         record = source.open(header)
         sizes = []
-        for name in ("mailer-probe.msg", "mailer-probe-한글.msg"):
+        for name in ("inlook-probe.msg", "inlook-probe-한글.msg"):
             path = work / name
             source.save_msg(record, path)
             if not path.is_file() or path.stat().st_size == 0:
@@ -441,7 +441,7 @@ def _probe_archive_root(out: Reporter, archive_root: Path | None, err: Callable[
         return
     try:
         archive_root.mkdir(parents=True, exist_ok=True)
-        test = archive_root / ".mailer-write-test"
+        test = archive_root / ".inlook-write-test"
         test.write_text("ok", encoding="utf-8")
         test.unlink()
     except Exception as exc:  # noqa: BLE001

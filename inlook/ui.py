@@ -345,7 +345,7 @@ class MainWindow(QMainWindow):
         self.log_dir = log_dir
         self.lib = Library(root)
         self.label_filter: str | None = ALL
-        self.setWindowTitle(f"mailer — {root}")
+        self.setWindowTitle(f"inlook — {root}")
         self.resize(1400, 860)
 
         # 위: 검색 + 동기화
@@ -509,7 +509,7 @@ class MainWindow(QMainWindow):
             return
         mail = self.lib.get(ids[0])
         if mail is None or not mail.msg_path.exists():
-            QMessageBox.warning(self, "mailer", ".msg 파일을 찾을 수 없습니다.")
+            QMessageBox.warning(self, "inlook", ".msg 파일을 찾을 수 없습니다.")
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(mail.msg_path)))
 
@@ -639,7 +639,7 @@ class MainWindow(QMainWindow):
 
 def run_app(root: Path, make_source: Callable[[], MailSource], log_dir: Path | None) -> int:
     app = QApplication.instance() or QApplication(sys.argv)
-    app.setApplicationName("mailer")
+    app.setApplicationName("inlook")
     if sys.platform == "win32":
         app.setFont(QFont("Malgun Gothic", 9))
 
@@ -649,13 +649,13 @@ def run_app(root: Path, make_source: Callable[[], MailSource], log_dir: Path | N
             log_dir.mkdir(parents=True, exist_ok=True)
             with (log_dir / "app-error.txt").open("a", encoding="utf-8") as f:
                 f.write(f"--- {datetime.now():%Y-%m-%d %H:%M:%S}\n{text}\n")
-        QMessageBox.critical(None, "mailer 오류", text[-2000:])
+        QMessageBox.critical(None, "inlook 오류", text[-2000:])
 
     sys.excepthook = excepthook
     try:
         window = MainWindow(root, make_source, log_dir)
     except Exception as exc:
-        QMessageBox.critical(None, "mailer", f"보존 경로를 열 수 없습니다: {root}\n\n{exc}")
+        QMessageBox.critical(None, "inlook", f"보존 경로를 열 수 없습니다: {root}\n\n{exc}")
         return 2
     window.show()
     return app.exec()

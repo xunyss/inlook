@@ -1,4 +1,7 @@
-# mailer — Outlook 메일 보존 도구
+# inlook — Outlook 메일 보존 도구
+
+> 2026-10-15 에 mailer 에서 inlook 으로 이름을 바꿨다 (Outlook = 앞을 내다봄 ↔ inlook = 지난 메일을 돌아봄, 사용자 작명).
+> 예전 DB `mailer.db` 는 처음 열 때 `inlook.db` 로 자동으로 바뀐다. 기본 보존 경로 `D:\mailbox` 는 그대로
 
 > 이 저장소는 **public** 이다. 회사명·메일 도메인·사람 이름·폴더명(고객사명)·
 > 실제 메일 내용을 이 파일과 코드, 커밋 메시지, 테스트 데이터에 넣지 않는다.
@@ -30,7 +33,7 @@
 - 주력: **Python(>=3.12) + pywin32 로 Outlook COM 자동화**. VBA는 필요시 "도착 즉시 저장" 보조
 - 의존성 최소화: pywin32(수집), PySide6(뷰어), olefile(.msg 읽기, 순수 파이썬) 외에는 표준 라이브러리(sqlite3 등)
 - pywin32는 Windows 전용 → `sys_platform == 'win32'` 마커로 Mac 개발 환경과 공존
-- `[tool.uv] package = false` — 패키지로 설치하지 않고 저장소 루트에서 `python -m mailer` 로 실행
+- `[tool.uv] package = false` — 패키지로 설치하지 않고 저장소 루트에서 `python -m inlook` 로 실행
 - 뷰어는 **자체 데스크톱 UI (PySide6)**. 브라우저·로컬 웹서버 방식은 쓰지 않는다
 - 중복 판단 키: **Internet Message-ID**, 없으면 SearchKey (probe v4 에서 둘 다 100%, 중복 0).
   EntryID는 폴더 이동/아카이브 시 바뀌므로 키로 쓰지 않는다
@@ -52,7 +55,7 @@
   객체를 정리하고 정상 종료한다. 수집기는 오래 돌 수 있으므로 진행 표시·중단·재개를 기본으로 갖춘다
 
 ## 수집(동기화) 방식 (2026-10-14 결정)
-- **동기화는 mailer 앱(PySide6 UI)에서 사용자가 수동으로 실행**한다. 자동 실행·스케줄러 없음
+- **동기화는 inlook 앱(PySide6 UI)에서 사용자가 수동으로 실행**한다. 자동 실행·스케줄러 없음
   - COM 은 UI 스레드가 아닌 작업 스레드에서 호출한다 (pythoncom.CoInitialize 필요)
 - **전체 대조는 하지 않는다.** 증분만:
   - DB 에 마지막 동기화 일시, 메일별 Message-ID·수신 일시·수집 당시 폴더를 저장
@@ -67,7 +70,7 @@
 ## 저장 구조: 폴더 대신 라벨 (2026-10-14 결정)
 - 수집 대상: 기본 사서함의 메일 폴더 전부. **지운 편지함·임시 보관함은 제외**, 보낸 편지함·정크 메일 포함
   (보낼 편지함은 아직 안 보낸 항목이라 제외). `source.EXCLUDED_KINDS`
-- mailer 안에는 **폴더 개념이 없다.** 메일은 수신 일시 기준으로 저장한다
+- inlook 안에는 **폴더 개념이 없다.** 메일은 수신 일시 기준으로 저장한다
 - .msg 파일명은 `{수신시각}_{hash}.msg` (예: `2026/10/20261014-093215_3f9a1c2b7e04.msg`)
   - hash = 중복 키(Message-ID, 없으면 SearchKey)의 sha256 앞 12자리. 같은 메일은 항상 같은 파일명 →
     중단 후 재실행해도 중복 파일이 생기지 않는다
@@ -76,16 +79,16 @@
 - DB(SQLite): 메일(키, 수신 일시, 제목·보낸 사람·받는 사람, 본문 텍스트, .msg 상대 경로, 수집 일시),
   라벨, 메일×라벨, 동기화 기록(시작·종료·기준 시각·건수). 검색은 DB 의 본문 텍스트로 한다 (.msg 를 매번 열지 않음)
 - 메일마다 **라벨 여러 개**. 처음 수집할 때 Outlook 폴더 경로를 라벨로 붙인다
-- 수집이 끝난 메일의 라벨은 mailer 안에서 사용자가 붙이고 뗀다. Outlook 과는 무관하다
+- 수집이 끝난 메일의 라벨은 inlook 안에서 사용자가 붙이고 뗀다. Outlook 과는 무관하다
 - Outlook 에서 온 라벨은 **처음 저장할 때만** 붙인다. 이미 있는 메일(Message-ID 일치)은 동기화가 라벨을 건드리지 않는다
   (사용자가 뗀 라벨이 다음 동기화에서 되살아나지 않게)
 - 같은 메일이 두 폴더에 있으면(같은 Message-ID) 메일 1건 + 라벨 2개
-- 수집 후 Outlook 에서 폴더를 옮겨도 mailer 라벨은 바뀌지 않는다 (사용자 확인함)
+- 수집 후 Outlook 에서 폴더를 옮겨도 inlook 라벨은 바뀌지 않는다 (사용자 확인함)
 
 ## 수집기 1차 (2026-10-14)
 - **앱보다 메일 확보가 먼저** (사용자 지시). 보존 기간이 지나는 메일이 매일 생기므로
-  `collect.bat`(`python -m mailer collect`) 을 먼저 만들고, PySide6 앱은 나중에 이 엔진을 붙인다
-- 기본 보존 경로 `D:\mailbox` (사용자 지정). `mailer.db` + `msg\YYYY\MM\*.msg`
+  `collect.bat`(`python -m inlook collect`) 을 먼저 만들고, PySide6 앱은 나중에 이 엔진을 붙인다
+- 기본 보존 경로 `D:\mailbox` (사용자 지정). `inlook.db` + `msg\YYYY\MM\*.msg`
 - **오래된 메일부터 저장** — 곧 사라질 메일을 먼저 확보
 - 메일 한 건마다 커밋. 실패·중단이 있던 동기화(`partial`/`stopped`)는 기준 시각으로 쓰지 않는다
   → 다음 실행이 같은 구간을 다시 보고 빠진 것만 채운다. 연속 5건 실패하면 멈춘다
@@ -96,7 +99,7 @@
 - 사용자는 새 메일을 **Outlook 에서 폴더 정리를 끝낸 뒤** 수집한다 (라벨이 첫 수집 때만 정해지므로)
 
 ## 뷰어 앱 1차 (2026-10-14)
-- `app.bat` → `python -m mailer app [보존 경로]`. pythonw 로 콘솔 없이 뜬다 (콘솔 창을 닫아 동기화가 강제 종료되는 일 방지)
+- `app.bat` → `python -m inlook app [보존 경로]`. pythonw 로 콘솔 없이 뜬다 (콘솔 창을 닫아 동기화가 강제 종료되는 일 방지)
 - 의존성은 `pyside6-essentials` (WebEngine 등 애드온 제외, 설치 용량 절약). 본문은 QTextBrowser 로 표시 —
   스크립트 실행·원격 이미지 로드를 하지 않는다. 링크는 눌렀을 때만 외부 브라우저로
 - 구성: 라벨 트리 | 메일 목록 | 미리보기. 검색은 SQLite LIKE (띄어쓰기 = AND, 제목·사람·본문·첨부 파일명).
@@ -123,7 +126,7 @@
 - `library.py` 에 DB 조회·라벨 편집을 모아 Qt 없이 테스트한다. UI 는 pytest-qt offscreen 스모크 테스트
 
 ## 개발·테스트 전략 (Mac에서 개발, VDI에서 실행)
-- Outlook COM 접근은 `MailSource` 인터페이스(`mailer/source.py`) 뒤로 격리한다
+- Outlook COM 접근은 `MailSource` 인터페이스(`inlook/source.py`) 뒤로 격리한다
   - `OutlookSource`(VDI 전용, 얇게) / `FakeMailSource`(Mac용 합성 데이터)
 - 테스트 데이터는 합성 데이터만 쓴다
 - COM 동작은 VDI에서 `probe.bat`(자가진단)으로 검증하고 결과 화면만 받아본다
@@ -140,6 +143,6 @@
 ## Mac 개발 명령
 ```bash
 uv sync                           # .venv 생성 + 의존성 (pytest 포함)
-uv run python -m mailer probe --fake
+uv run python -m inlook probe --fake
 uv run pytest
 ```

@@ -1,5 +1,5 @@
 [project]
-name = "mailer"
+name = "inlook"
 version = "0.1.0"
 description = "Archive Outlook (Exchange) mail to .msg files before retention policy deletes them"
 readme = "README.md"

@@ -139,7 +139,7 @@ class _Collector:
     def run(self) -> int:
         out = self.out
         out.line(RULE)
-        out.line(f" mailer collect   {self.started:%Y-%m-%d %H:%M:%S}" + ("   (dry-run)" if self.dry_run else ""))
+        out.line(f" inlook collect   {self.started:%Y-%m-%d %H:%M:%S}" + ("   (dry-run)" if self.dry_run else ""))
         out.line(RULE)
         try:
             return self._run()

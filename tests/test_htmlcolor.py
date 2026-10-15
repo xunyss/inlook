@@ -1,6 +1,6 @@
 from PySide6.QtGui import QColor
 
-from mailer.htmlcolor import darken_html
+from inlook.htmlcolor import darken_html
 
 
 def _light(name: str) -> float:

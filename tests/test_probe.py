@@ -1,7 +1,7 @@
 from datetime import datetime
 
-from mailer.fake import FakeMailSource
-from mailer.probe import run_probe
+from inlook.fake import FakeMailSource
+from inlook.probe import run_probe
 
 NOW = datetime(2026, 10, 13, 12, 0)
 
@@ -48,7 +48,7 @@ def test_probe_reports_save_failure(tmp_path, capsys):
 
 
 def test_source_has_no_store_access():
-    from mailer import source
+    from inlook import source
 
     assert not hasattr(source, "StoreRef")
     assert not hasattr(FakeMailSource, "stores")
@@ -92,7 +92,7 @@ def test_outlook_source_never_touches_other_stores():
     # outlook.py 는 Mac 에서 import 할 수 없으므로 코드 문자열로 확인한다
     from pathlib import Path
 
-    code = Path(__file__).parent.parent / "mailer" / "outlook.py"
+    code = Path(__file__).parent.parent / "inlook" / "outlook.py"
     lines = [line for line in code.read_text(encoding="utf-8").splitlines() if not line.lstrip().startswith("#")]
     body = "\n".join(lines).split('"""', 2)[-1]  # 모듈 docstring 제외
     for banned in (".Stores", "GetRootFolder", "ExchangeStoreType", "IsDataFileStore"):

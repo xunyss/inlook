@@ -8,8 +8,8 @@ from PySide6.QtCore import Qt
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from mailer.fake import FakeMailSource  # noqa: E402
-from mailer.ui import MainWindow, SyncDialog  # noqa: E402
+from inlook.fake import FakeMailSource  # noqa: E402
+from inlook.ui import MainWindow, SyncDialog  # noqa: E402
 
 NOW = datetime(2026, 10, 14, 9, 30)
 

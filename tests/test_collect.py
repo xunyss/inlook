@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from mailer.collect import run_collect
-from mailer.fake import FakeMailSource
-from mailer.store import DB_NAME, Store
+from inlook.collect import run_collect
+from inlook.fake import FakeMailSource
+from inlook.store import DB_NAME, Store
 
 NOW = datetime(2026, 10, 14, 9, 30)
 
@@ -56,7 +56,7 @@ def test_second_sync_is_incremental_and_keeps_user_labels(tmp_path):
     run_collect(lambda: source, tmp_path)
     store = Store(tmp_path)
     key = store.db.execute("SELECT key FROM mails WHERE received >= ? LIMIT 1", ("2026-10-14",)).fetchone()[0]
-    # 사용자가 mailer 에서 라벨을 모두 뗐다
+    # 사용자가 inlook 에서 라벨을 모두 뗐다
     store.db.execute("DELETE FROM mail_labels WHERE mail_id = (SELECT id FROM mails WHERE key = ?)", (key,))
     store.db.commit()
     before = store.count()
@@ -204,3 +204,12 @@ def test_legacy_slash_labels_are_fixed_on_next_sync(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "라벨 1개를 바로잡음" in out
     assert "AI" not in out
+
+
+def test_legacy_db_name_is_migrated(tmp_path):
+    run_collect(lambda: FakeMailSource(NOW), tmp_path)
+    (tmp_path / DB_NAME).rename(tmp_path / "mailer.db")
+    store = Store(tmp_path)
+    assert store.count() == _target_mails(FakeMailSource(NOW))
+    store.close()
+    assert not (tmp_path / "mailer.db").exists()

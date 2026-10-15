@@ -12,6 +12,6 @@ if not exist ".venv\Scripts\python.exe" (
 )
 echo To stop, press Ctrl+C and wait. Do NOT close this window while it is running.
 echo.
-".venv\Scripts\python.exe" -m mailer probe %*
+".venv\Scripts\python.exe" -m inlook probe %*
 echo.
 pause

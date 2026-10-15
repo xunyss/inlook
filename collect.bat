@@ -14,6 +14,6 @@ if not exist ".venv\Scripts\python.exe" (
 echo To stop, press Ctrl+C and wait. Do NOT close this window while it is running.
 echo Saved mail is kept. Run again to continue.
 echo.
-".venv\Scripts\python.exe" -m mailer collect %*
+".venv\Scripts\python.exe" -m inlook collect %*
 echo.
 pause

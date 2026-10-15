@@ -1,9 +1,9 @@
 """보존소: archive_root 아래의 SQLite DB + .msg 파일.
 
-mailer 안에는 폴더 개념이 없다. 메일은 수신 시각 기준 경로에 저장하고,
+inlook 안에는 폴더 개념이 없다. 메일은 수신 시각 기준 경로에 저장하고,
 Outlook 폴더는 처음 저장할 때 라벨로만 남긴다.
 
-    <archive_root>/mailer.db
+    <archive_root>/inlook.db
     <archive_root>/msg/YYYY/MM/YYYYMMDD-HHMMSS_<hash12>.msg
 """
 
@@ -18,7 +18,8 @@ from pathlib import Path
 
 from .source import MailHeader, MailRecord
 
-DB_NAME = "mailer.db"
+DB_NAME = "inlook.db"
+LEGACY_DB_NAME = "mailer.db"  # 이름을 바꾸기 전(2026-10-15)의 DB. 처음 열 때 inlook.db 로 옮긴다
 MSG_DIR = "msg"
 SCHEMA_VERSION = 1
 
@@ -58,7 +59,7 @@ CREATE TABLE IF NOT EXISTS mail_labels (
     PRIMARY KEY (mail_id, label_id)
 );
 
--- 사용자가 mailer 에서 삭제한 메일의 키. 내용은 남기지 않는다. 다음 동기화가 다시 수집하지 않게 한다
+-- 사용자가 inlook 에서 삭제한 메일의 키. 내용은 남기지 않는다. 다음 동기화가 다시 수집하지 않게 한다
 CREATE TABLE IF NOT EXISTS deleted (
     key        TEXT PRIMARY KEY,
     deleted_at TEXT NOT NULL
@@ -114,6 +115,12 @@ class Store:
     def __init__(self, root: Path) -> None:
         self.root = root
         root.mkdir(parents=True, exist_ok=True)
+        legacy = root / LEGACY_DB_NAME
+        if legacy.exists() and not (root / DB_NAME).exists():
+            for suffix in ("-journal", ""):  # 저널이 남아 있으면 함께 옮겨야 복구된다
+                old = root / (LEGACY_DB_NAME + suffix)
+                if old.exists():
+                    old.rename(root / (DB_NAME + suffix))
         self.db = sqlite3.connect(root / DB_NAME)
         self.db.execute("PRAGMA foreign_keys = ON")
         self.db.executescript(_SCHEMA)

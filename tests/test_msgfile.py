@@ -7,7 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QBuffer, QUrl  # noqa: E402
 from PySide6.QtGui import QColor, QImage  # noqa: E402
 
-from mailer.msgfile import inline_images, read_attachments  # noqa: E402
+from inlook.msgfile import inline_images, read_attachments  # noqa: E402
 from tests.cfb import fake_msg  # noqa: E402
 
 
@@ -38,7 +38,7 @@ def test_reads_attachments_with_content_id(tmp_path):
 
 
 def test_preview_shows_cid_image(qtbot, tmp_path):
-    from mailer.ui import MailBody
+    from inlook.ui import MailBody
 
     path = tmp_path / "b.msg"
     fake_msg(path, [("image001.png", "image001.png@01DB", _png("blue", 64))])

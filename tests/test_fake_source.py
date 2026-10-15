@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from mailer.fake import FakeMailSource
+from inlook.fake import FakeMailSource
 
 NOW = datetime(2026, 10, 13, 12, 0)
 

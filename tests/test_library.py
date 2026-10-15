@@ -4,9 +4,9 @@ from datetime import datetime
 
 import pytest
 
-from mailer.collect import run_collect
-from mailer.fake import FakeMailSource
-from mailer.library import UNLABELED, Library
+from inlook.collect import run_collect
+from inlook.fake import FakeMailSource
+from inlook.library import UNLABELED, Library
 
 NOW = datetime(2026, 10, 14, 9, 30)
 
