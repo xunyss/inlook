@@ -499,7 +499,7 @@ class MainWindow(QMainWindow):
             return
         mail = self.lib.get(ids[0])
         if mail:
-            self.preview.show_mail(mail)
+            self.preview.show_mail(self.lib.fill_html(mail))
 
     # --- 동작 ---
 

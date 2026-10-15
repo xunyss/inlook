@@ -118,6 +118,10 @@
 - **본문 이미지** (2026-10-15): 본문의 `cid:` 이미지는 미리보기 때 .msg 에서 첨부를 꺼내 보여준다 (`msgfile.py`, olefile).
   DB 에는 첨부 내용을 넣지 않는다 (.msg 가 원본). 원격(http) 이미지는 불러오지 않는다.
   테스트용 .msg 는 `tests/cfb.py` 가 합성으로 만든다
+- **회의 요청 등 HTMLBody 가 없는 항목** (2026-10-15): COM 의 MeetingItem 은 HTMLBody 를 주지 않아 텍스트 본문만 저장됐었다.
+  .msg 의 압축 RTF(PR_RTF_COMPRESSED) 를 풀고(LZFu) 감싼 HTML(\\fromhtml1) 을 꺼낸다 (`rtfhtml.py`).
+  수집 때는 저장한 .msg 에서 바로 채우고, 이미 저장된 메일은 미리보기 때 채워 DB 에 남긴다 (`Library.fill_html`).
+  가져오기도 PR_HTML 이 없으면 같은 방법을 쓴다
 - **어두운 테마에서 본문 색 보정** (2026-10-15, 사용자 요청): 짙은 글자색은 밝기를 뒤집어 밝게, 밝은 배경색은 어둡게
   (`htmlcolor.darken_html`, 색상은 유지 — Outlook 다크 모드와 같은 방식). 미리보기의 ☀ 버튼으로 흰 배경 원본 보기
 - `library.py` 에 DB 조회·라벨 편집을 모아 Qt 없이 테스트한다. UI 는 pytest-qt offscreen 스모크 테스트
@@ -127,7 +131,7 @@
 - **Outlook·COM 을 쓰지 않는다.** olefile 로 .msg 의 MAPI 속성을 직접 읽는다 (`msgfile.read_message`):
   제목·보낸 사람·받는 사람·참조·본문·PR_HTML·Message-ID·SearchKey·받은 시각(PR_MESSAGE_DELIVERY_TIME, 없으면 보낸 시각)·첨부 이름
   - 시각은 FILETIME(UTC) → 이 PC 시간대의 naive 로컬 시각 (COM 수집값과 같은 기준)
-  - PR_HTML 이 없는 .msg(본문이 압축 RTF 에만 있는 경우)는 텍스트 본문만 보인다. 필요하면 RTF 해제를 나중에 추가
+  - PR_HTML 이 없으면 압축 RTF 안의 HTML 을 쓴다. 순수 RTF 메일(HTML 을 감싸지 않음)은 텍스트 본문만
 - 라벨 (사용자 결정): 폴더 바로 아래 → `받은 편지함`, 하위 폴더 X → `받은 편지함/X`.
   Outlook 에서 수집한 같은 이름 폴더 라벨과 합쳐지도록 `받은 편지함/` 아래에 둔다 (`--parent-label` 로 변경 가능)
 - 키는 수집과 같다 (Message-ID → SearchKey). 둘 다 없으면 파일 내용 sha256. 이미 있는 메일·삭제한 메일은 건너뛴다

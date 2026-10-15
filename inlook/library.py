@@ -7,9 +7,10 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
+from .msgfile import read_html
 from .store import Store
 
 ALL = None  # 라벨 필터 없음
@@ -172,6 +173,20 @@ class Library:
             attachments=attachments, body=r[9] or "", html_body=r[10] or "",
             msg_path=self.root / Path(r[11]), labels=self._labels_for([r[0]]).get(r[0], []),
         )
+
+    def fill_html(self, mail: MailDetail) -> MailDetail:
+        """HTML 본문이 비어 있으면 .msg 에서 꺼내(압축 RTF 포함) DB 에 채워 둔다. 다음부터는 바로 나온다."""
+        if mail.html_body or not mail.msg_path.exists():
+            return mail
+        try:
+            html = read_html(mail.msg_path)
+        except Exception:
+            return mail
+        if not html:
+            return mail
+        with self.db:
+            self.db.execute("UPDATE mails SET html_body = ? WHERE id = ?", (html, mail.id))
+        return replace(mail, html_body=html)
 
     # --- 라벨 편집 ---
 

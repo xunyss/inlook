@@ -23,6 +23,7 @@ from pathlib import Path
 from .errors import CODES
 from .probe import FAIL, INFO, PASS, RULE, WARN, Redactor, Reporter, describe_exc
 from .source import EXCLUDED_KINDS, FolderRef, MailHeader, MailSource
+from .msgfile import read_html
 from .store import Store, mail_key, msg_relpath
 
 DEFAULT_MARGIN_DAYS = 3  # 사용자 결정 2026-10-14. 시계 차이 + 지운 편지함에서 최근 메일 복원 대비
@@ -275,6 +276,12 @@ class _Collector:
                     source.save_msg(record, path)
                 except Exception as exc:
                     raise _Step("E109", exc) from exc
+                if not record.html_body:
+                    # 회의 요청 등은 COM 이 HTMLBody 를 주지 않는다. 저장한 .msg 의 압축 RTF 에서 꺼낸다
+                    try:
+                        record.html_body = read_html(path)
+                    except Exception:
+                        pass
                 try:
                     self.store.add(cand.key, cand.key_kind, record, rel, cand.labels, self.sync_id)
                 except Exception as exc:

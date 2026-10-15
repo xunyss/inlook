@@ -19,6 +19,8 @@ from pathlib import Path
 
 import olefile
 
+from .rtfhtml import html_from_compressed_rtf
+
 _ATTACH_PREFIX = "__attach_version1.0_"
 _DATA = "__substg1.0_37010102"
 _CONTENT_ID = "__substg1.0_3712001F"
@@ -87,6 +89,7 @@ PR_SENDER_EMAIL = 0x0C1F
 PR_SENDER_SMTP = 0x5D01
 PR_BODY = 0x1000
 PR_HTML = 0x1013
+PR_RTF_COMPRESSED = 0x1009
 PR_INTERNET_MESSAGE_ID = 0x1035
 PR_SEARCH_KEY = 0x300B
 PR_INTERNET_CPID = 0x3FDE
@@ -176,17 +179,36 @@ def _decode_html(data: bytes, cpid: int | None) -> str:
     return data.decode("utf-8", errors="replace")
 
 
+def _html(ole: olefile.OleFileIO, cpid: int | None, ansi: str) -> str:
+    """PR_HTML, 없으면 압축 RTF 안에 감싼 HTML (회의 요청 등). 둘 다 없으면 ""."""
+    raw = _stream(ole, f"__substg1.0_{PR_HTML:04X}0102")
+    if raw:
+        return _decode_html(raw.rstrip(b"\x00"), cpid)
+    html = _string(ole, PR_HTML, ansi)
+    if html:
+        return html
+    rtf = _stream(ole, f"__substg1.0_{PR_RTF_COMPRESSED:04X}0102")
+    if rtf:
+        try:
+            return html_from_compressed_rtf(rtf) or ""
+        except ValueError:
+            return ""
+    return ""
+
+
+def read_html(path: Path) -> str:
+    """.msg 의 HTML 본문. 저장할 때 HTML 을 못 받은 메일(회의 요청 등)의 미리보기에 쓴다."""
+    with olefile.OleFileIO(str(path)) as ole:
+        cpid = _int(_fixed_props(ole), PR_INTERNET_CPID)
+        return _html(ole, cpid, _CPID.get(cpid, "cp949") if cpid else "cp949")
+
+
 def read_message(path: Path) -> MsgMessage:
     with olefile.OleFileIO(str(path)) as ole:
         props = _fixed_props(ole)
         cpid = _int(props, PR_INTERNET_CPID)
         ansi = _CPID.get(cpid, "cp949") if cpid else "cp949"
-        html = ""
-        raw = _stream(ole, f"__substg1.0_{PR_HTML:04X}0102")
-        if raw:
-            html = _decode_html(raw.rstrip(b"\x00"), cpid)
-        else:
-            html = _string(ole, PR_HTML, ansi)
+        html = _html(ole, cpid, ansi)
         search_key = _stream(ole, f"__substg1.0_{PR_SEARCH_KEY:04X}0102")
         message_id = _string(ole, PR_INTERNET_MESSAGE_ID, ansi).strip()
         attachments = [a.filename for a in _attachments(ole)]
