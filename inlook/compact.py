@@ -9,8 +9,16 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from .msgfile import read_html
+from .msgfile import body_format, read_html
 from .store import DB_NAME, Store
+
+_REASONS = {
+    "rtf-only": "RTF 형식 메일 (HTML 이 아니라 RTF 로 작성됨. 미리보기는 DB 의 HTML 로 계속 보임)",
+    "rtf-broken": "압축 RTF 손상",
+    "text-only": "텍스트 본문만 있음",
+    "none": "본문 없음",
+    "html": "HTML 있으나 비어 있음",
+}
 
 
 def run_compact(root: Path, *, dry_run: bool = False) -> int:
@@ -22,24 +30,31 @@ def run_compact(root: Path, *, dry_run: bool = False) -> int:
     store = Store(root)
     try:
         rows = store.db.execute(
-            "SELECT id, msg_path FROM mails WHERE html_body IS NOT NULL AND html_body != ''"
+            "SELECT id, msg_path, received, message_class FROM mails WHERE html_body IS NOT NULL AND html_body != ''"
         ).fetchall()
         print(f"HTML 이 DB 에 있는 메일 {len(rows):,}건을 확인합니다. (DB {before / 1e6:.1f} MB)")
-        cleared, kept = [], 0
+        cleared, kept = [], []
         t0 = time.perf_counter()
-        for i, (mail_id, rel) in enumerate(rows, 1):
+        for i, (mail_id, rel, received, message_class) in enumerate(rows, 1):
             path = root / Path(rel)
-            try:
-                ok = path.exists() and bool(read_html(path))
-            except Exception:
-                ok = False
-            if ok:
-                cleared.append(mail_id)
+            reason = ""
+            if not path.exists():
+                reason = ".msg 파일 없음"
             else:
-                kept += 1
+                try:
+                    if read_html(path):
+                        cleared.append(mail_id)
+                    else:
+                        reason = _REASONS.get(body_format(path), "알 수 없음")
+                except Exception as exc:
+                    reason = f"읽기 오류 ({type(exc).__name__})"
+            if reason:
+                kept.append(f"id={mail_id}  {received or '?'}  {message_class or '?'}  {reason}")
             if i % 50 == 0 or i == len(rows):
                 print(f"  {i:,}/{len(rows):,} 확인  ({time.perf_counter() - t0:.0f}s)", flush=True)
-        print(f".msg 에서 HTML 을 꺼낼 수 있음 {len(cleared):,}건 → DB 에서 비움, 못 꺼냄 {kept:,}건 → 그대로 둠")
+        print(f".msg 에서 HTML 을 꺼낼 수 있음 {len(cleared):,}건 → DB 에서 비움, 못 꺼냄 {len(kept):,}건 → 그대로 둠")
+        for line in kept[:20]:
+            print(f"   못 꺼냄: {line}")
         if dry_run:
             print("dry-run: 바꾸지 않고 끝냅니다")
             return 0

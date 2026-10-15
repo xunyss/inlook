@@ -19,7 +19,7 @@ from pathlib import Path
 
 import olefile
 
-from .rtfhtml import html_from_compressed_rtf
+from .rtfhtml import decompress_rtf, html_from_compressed_rtf
 
 _ATTACH_PREFIX = "__attach_version1.0_"
 _DATA = "__substg1.0_37010102"
@@ -229,3 +229,22 @@ def read_message(path: Path) -> MsgMessage:
             attachments=attachments,
             size=_int(props, PR_MESSAGE_SIZE) or path.stat().st_size,
         )
+
+
+def body_format(path: Path) -> str:
+    """본문이 어떤 형태로 들어 있는지 (진단용).
+    html: PR_HTML / rtf-html: 압축 RTF 안에 감싼 HTML / rtf-only: HTML 을 감싸지 않은 순수 RTF /
+    text-only: 텍스트 본문만 / none: 본문 없음"""
+    with olefile.OleFileIO(str(path)) as ole:
+        if _stream(ole, f"__substg1.0_{PR_HTML:04X}0102") or _stream(ole, f"__substg1.0_{PR_HTML:04X}001F"):
+            return "html"
+        rtf = _stream(ole, f"__substg1.0_{PR_RTF_COMPRESSED:04X}0102")
+        if rtf:
+            try:
+                raw = decompress_rtf(rtf)
+            except ValueError:
+                return "rtf-broken"
+            return "rtf-html" if b"\\fromhtml" in raw[:1024] else "rtf-only"
+        if _stream(ole, f"__substg1.0_{PR_BODY:04X}001F") or _stream(ole, f"__substg1.0_{PR_BODY:04X}001E"):
+            return "text-only"
+        return "none"

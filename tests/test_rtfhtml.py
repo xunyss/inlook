@@ -175,3 +175,28 @@ def test_compact_clears_only_recoverable_html_and_shrinks(tmp_path, capsys):
     kept = lib.db.execute("SELECT COUNT(*) FROM mails WHERE html_body != ''").fetchone()[0]
     assert kept == len(rows) - 60
     lib.close()
+
+
+def test_body_format_and_compact_reason(tmp_path, capsys):
+    from inlook.collect import run_collect
+    from inlook.compact import run_compact
+    from inlook.fake import FakeMailSource
+    from inlook.msgfile import body_format
+    from tests.cfb import write_cfb
+
+    rtf_only = {"__substg1.0_10090102": compress(b"{\\rtf1\\ansi Hello\\par}"),
+                "__properties_version1.0": b"\0" * 32}
+    path = tmp_path / "r.msg"
+    write_cfb(path, rtf_only)
+    assert body_format(path) == "rtf-only"
+    write_cfb(path, _meeting_msg())
+    assert body_format(path) == "rtf-html"
+
+    root = tmp_path / "archive"
+    source = FakeMailSource()
+    source.save_msg = lambda record, p: write_cfb(p, rtf_only)
+    run_collect(lambda: source, root)
+    run_compact(root, dry_run=True)
+    out = capsys.readouterr().out
+    assert "못 꺼냄: id=" in out and "RTF 형식 메일" in out
+    assert "News Letter" not in out
