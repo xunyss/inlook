@@ -19,7 +19,6 @@ from pathlib import Path
 from .source import MailHeader, MailRecord
 
 DB_NAME = "inlook.db"
-LEGACY_DB_NAME = "mailer.db"  # 이름을 바꾸기 전(2026-10-15)의 DB. 처음 열 때 inlook.db 로 옮긴다
 MSG_DIR = "msg"
 SCHEMA_VERSION = 1
 
@@ -115,12 +114,6 @@ class Store:
     def __init__(self, root: Path) -> None:
         self.root = root
         root.mkdir(parents=True, exist_ok=True)
-        legacy = root / LEGACY_DB_NAME
-        if legacy.exists() and not (root / DB_NAME).exists():
-            for suffix in ("-journal", ""):  # 저널이 남아 있으면 함께 옮겨야 복구된다
-                old = root / (LEGACY_DB_NAME + suffix)
-                if old.exists():
-                    old.rename(root / (DB_NAME + suffix))
         self.db = sqlite3.connect(root / DB_NAME)
         self.db.execute("PRAGMA foreign_keys = ON")
         self.db.executescript(_SCHEMA)

@@ -8,8 +8,8 @@ Outlook(Exchange) 메일을 보존 정책으로 사라지기 전에 `.msg` 로 �
 ## Windows 에서 사용
 
 ```
-git clone https://github.com/xunyss/mailer.git
-cd mailer
+git clone https://github.com/xunyss/inlook.git
+cd inlook
 setup.bat              # 최초 1회, 그리고 의존성이 바뀌었을 때
 probe.bat H:\mail      # 자가진단. 인자는 보존할 폴더 (생략 가능). 옵션: --rows 30 --deep 5
 collect.bat            # 동기화. 새 메일을 D:\mailbox 에 .msg + DB 로 저장

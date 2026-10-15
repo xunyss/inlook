@@ -205,11 +205,3 @@ def test_legacy_slash_labels_are_fixed_on_next_sync(tmp_path, capsys):
     assert "라벨 1개를 바로잡음" in out
     assert "AI" not in out
 
-
-def test_legacy_db_name_is_migrated(tmp_path):
-    run_collect(lambda: FakeMailSource(NOW), tmp_path)
-    (tmp_path / DB_NAME).rename(tmp_path / "mailer.db")
-    store = Store(tmp_path)
-    assert store.count() == _target_mails(FakeMailSource(NOW))
-    store.close()
-    assert not (tmp_path / "mailer.db").exists()
