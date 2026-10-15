@@ -46,7 +46,21 @@ def main(argv: list[str] | None = None) -> int:
                      help=f"보존 경로 (기본 {DEFAULT_ARCHIVE_ROOT})")
     app.add_argument("--fake", action="store_true", help="동기화에 합성 데이터 사용 (Mac 개발용)")
 
+    imp = sub.add_parser("import", help="예전에 저장해 둔 .msg 폴더를 가져오기")
+    imp.add_argument("source", type=Path, help="가져올 폴더 (하위 폴더 이름이 라벨이 된다)")
+    imp.add_argument("--to", dest="archive_root", type=Path, default=DEFAULT_ARCHIVE_ROOT,
+                     help=f"보존 경로 (기본 {DEFAULT_ARCHIVE_ROOT})")
+    imp.add_argument("--parent-label", default="받은 편지함",
+                     help="라벨 앞에 붙일 상위 라벨 (기본 '받은 편지함', 빈 문자열이면 폴더 이름만)")
+    imp.add_argument("--dry-run", action="store_true", help="읽기만 하고 가져오지 않음")
+
     args = parser.parse_args(argv)
+
+    if args.command == "import":
+        from .importer import run_import
+
+        return run_import(args.source, args.archive_root, parent_label=args.parent_label,
+                          dry_run=args.dry_run, log_dir=LOG_DIR)
 
     if args.fake:
         from .fake import FakeMailSource

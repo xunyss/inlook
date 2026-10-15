@@ -126,3 +126,56 @@ def fake_msg(path: Path, attachments: list[tuple[str, str, bytes]]) -> None:
             storage["__substg1.0_3712001F"] = cid.encode("utf-16-le")
         tree[f"__attach_version1.0_#{i:08X}"] = storage
     write_cfb(path, tree)
+
+
+def _filetime(value) -> bytes:
+    from datetime import timezone
+
+    utc = value.astimezone(timezone.utc) if value.tzinfo is None else value
+    from datetime import datetime as _dt
+
+    ticks = int((utc - _dt(1601, 1, 1, tzinfo=timezone.utc)).total_seconds() * 10_000_000)
+    return struct.pack("<Q", ticks)
+
+
+def fake_mail_msg(
+    path: Path,
+    *,
+    subject: str,
+    received=None,
+    message_id: str | None = None,
+    search_key: bytes | None = None,
+    sender: str = "홍길동",
+    sender_email: str = "gildong.hong@example.com",
+    to: str = "me@example.com",
+    body: str = "본문",
+    html: str | None = None,
+    html_charset: str = "utf-8",
+    attachments: list[tuple[str, str, bytes]] | None = None,
+) -> None:
+    """메일 속성까지 갖춘 합성 .msg. received 는 naive 로컬 시각."""
+
+    def text(prop: int, value: str) -> tuple[str, bytes]:
+        return f"__substg1.0_{prop:04X}001F", value.encode("utf-16-le")
+
+    tree: Tree = dict([
+        text(0x0037, subject), text(0x001A, "IPM.Note"), text(0x0C1A, sender), text(0x5D01, sender_email),
+        text(0x0E04, to), text(0x1000, body),
+    ])
+    if message_id:
+        tree.update([text(0x1035, message_id)])
+    if search_key:
+        tree["__substg1.0_300B0102"] = search_key
+    if html is not None:
+        tree["__substg1.0_10130102"] = html.encode(html_charset)
+    props = b"\0" * 32
+    if received is not None:
+        for prop in (0x0E06, 0x0039):
+            props += struct.pack("<II", (prop << 16) | 0x0040, 0) + _filetime(received)
+    tree["__properties_version1.0"] = props
+    for i, (name, cid, data) in enumerate(attachments or []):
+        storage: Tree = {"__substg1.0_37010102": data, "__substg1.0_3707001F": name.encode("utf-16-le")}
+        if cid:
+            storage["__substg1.0_3712001F"] = cid.encode("utf-16-le")
+        tree[f"__attach_version1.0_#{i:08X}"] = storage
+    write_cfb(path, tree)

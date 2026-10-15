@@ -122,6 +122,18 @@
   (`htmlcolor.darken_html`, 색상은 유지 — Outlook 다크 모드와 같은 방식). 미리보기의 ☀ 버튼으로 흰 배경 원본 보기
 - `library.py` 에 DB 조회·라벨 편집을 모아 Qt 없이 테스트한다. UI 는 pytest-qt offscreen 스모크 테스트
 
+## .msg 폴더 가져오기 (2026-10-15)
+- 사용자가 예전에 Outlook '다른 이름으로 저장' 으로 받아 둔 .msg 폴더를 inlook 으로 가져온다 (`import.bat <폴더>`, `importer.py`)
+- **Outlook·COM 을 쓰지 않는다.** olefile 로 .msg 의 MAPI 속성을 직접 읽는다 (`msgfile.read_message`):
+  제목·보낸 사람·받는 사람·참조·본문·PR_HTML·Message-ID·SearchKey·받은 시각(PR_MESSAGE_DELIVERY_TIME, 없으면 보낸 시각)·첨부 이름
+  - 시각은 FILETIME(UTC) → 이 PC 시간대의 naive 로컬 시각 (COM 수집값과 같은 기준)
+  - PR_HTML 이 없는 .msg(본문이 압축 RTF 에만 있는 경우)는 텍스트 본문만 보인다. 필요하면 RTF 해제를 나중에 추가
+- 라벨 (사용자 결정): 폴더 바로 아래 → `받은 편지함`, 하위 폴더 X → `받은 편지함/X`.
+  Outlook 에서 수집한 같은 이름 폴더 라벨과 합쳐지도록 `받은 편지함/` 아래에 둔다 (`--parent-label` 로 변경 가능)
+- 키는 수집과 같다 (Message-ID → SearchKey). 둘 다 없으면 파일 내용 sha256. 이미 있는 메일·삭제한 메일은 건너뛴다
+- 가져오기는 `syncs` 를 남기지 않는다 (증분 동기화 기준 시각에 영향 없음). 원본 폴더는 읽기만 하고 보존 경로로 복사
+- 출력에 파일 이름을 찍지 않는다 (`file#N`). 파일 이름 = 메일 제목이라 고객사명이 들어 있다
+
 ## 개발·테스트 전략 (Mac에서 개발, VDI에서 실행)
 - Outlook COM 접근은 `MailSource` 인터페이스(`inlook/source.py`) 뒤로 격리한다
   - `OutlookSource`(VDI 전용, 얇게) / `FakeMailSource`(Mac용 합성 데이터)
