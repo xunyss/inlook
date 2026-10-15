@@ -225,7 +225,7 @@ class Preview(QWidget):
         self.header.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.open_btn = QPushButton(".msg 열기")
         self.open_btn.clicked.connect(open_msg)
-        self.label_btn = QPushButton("라벨…")
+        self.label_btn = QPushButton("라벨 변경…")
         self.label_btn.clicked.connect(edit_labels)
         self.body = QTextBrowser()
         self.body.setOpenLinks(False)  # 링크를 눌러도 이 창에서 이동하지 않는다
@@ -460,35 +460,29 @@ class MainWindow(QMainWindow):
         ids = self.selected_ids()
         if not ids:
             return
-        menu = self._label_menu(ids)
-        menu.exec(self.preview.label_btn.mapToGlobal(self.preview.label_btn.rect().bottomLeft()))
+        self._change_label(ids)
+
+    # 화면에서는 메일당 라벨 하나만 다룬다 (사용자 결정 2026-10-15). DB 는 여러 개를 담을 수 있는 구조 그대로.
 
     def _label_menu(self, ids: list[int]) -> QMenu:
         menu = QMenu(self)
-        menu.addAction("라벨 붙이기…", lambda: self._add_label(ids))
-        current = sorted({label for r in self.model.rows if r.id in ids for label in r.labels})
-        if current:
-            remove = menu.addMenu("라벨 떼기")
-            for name in current:
-                remove.addAction(name, lambda n=name: self._remove_label(ids, n))
+        menu.addAction("라벨 변경…", lambda: self._change_label(ids))
         return menu
 
-    def _add_label(self, ids: list[int]) -> None:
+    def _change_label(self, ids: list[int]) -> None:
         names = sorted(self.lib.label_counts())
+        current = {label for r in self.model.rows if r.id in ids for label in r.labels}
+        start = names.index(next(iter(current))) if len(current) == 1 and next(iter(current)) in names else 0
         name, ok = QInputDialog.getItem(
-            self, "라벨 붙이기", f"{len(ids)}건에 붙일 라벨 ('/' 로 하위 라벨):", names, 0, True
+            self, "라벨 변경",
+            f"{len(ids)}건의 라벨을 바꿉니다. 기존 라벨은 떼어집니다.\n('/' 로 하위 라벨, 새 이름을 입력해도 됩니다)",
+            names, start, True,
         )
         if ok and name.strip():
-            self.lib.add_label(ids, name)
+            self.lib.set_label(ids, name)
             self.refresh_labels()
             self.refresh_list()
             self._mail_selected()
-
-    def _remove_label(self, ids: list[int], name: str) -> None:
-        self.lib.remove_label(ids, name)
-        self.refresh_labels()
-        self.refresh_list()
-        self._mail_selected()
 
     def _table_menu(self, pos) -> None:
         ids = self.selected_ids()

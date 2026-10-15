@@ -175,6 +175,22 @@ class Library:
 
     # --- 라벨 편집 ---
 
+    def set_label(self, mail_ids: list[int], name: str) -> str:
+        """기존 라벨을 모두 떼고 name 하나만 붙인다 (화면의 '라벨 변경')."""
+        name = _clean_label(name)
+        if not name:
+            raise ValueError("빈 라벨 이름")
+        with self.db:
+            self.db.executemany("DELETE FROM mail_labels WHERE mail_id = ?", [(m,) for m in mail_ids])
+            self.db.execute("INSERT OR IGNORE INTO labels (name) VALUES (?)", (name,))
+            (label_id,) = self.db.execute("SELECT id FROM labels WHERE name = ?", (name,)).fetchone()
+            self.db.executemany(
+                "INSERT OR IGNORE INTO mail_labels (mail_id, label_id) VALUES (?, ?)",
+                [(m, label_id) for m in mail_ids],
+            )
+            self._drop_unused()
+        return name
+
     def add_label(self, mail_ids: list[int], name: str) -> str:
         name = _clean_label(name)
         if not name:

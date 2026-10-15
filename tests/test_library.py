@@ -123,3 +123,11 @@ def test_deleting_last_mail_of_label_drops_label(lib):
     ids = [r.id for r in lib.search(label="받은 편지함/프로젝트A/회의록")]
     lib.delete_mails(ids)
     assert "받은 편지함/프로젝트A/회의록" not in lib.label_counts()
+
+
+def test_set_label_replaces_existing_labels(lib):
+    ids = [r.id for r in lib.search(label="받은 편지함/뉴스레터")][:3]
+    lib.set_label(ids, "보관함/뉴스")
+    for mail_id in ids:
+        assert lib.get(mail_id).labels == ["보관함/뉴스"]
+    assert len(lib.search(label="받은 편지함/뉴스레터")) == 27

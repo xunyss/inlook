@@ -78,3 +78,14 @@ def test_delete_from_ui(qtbot, window, monkeypatch):
     window.delete_selected()
     assert window.model.rowCount() == 105
     assert "105" in window.info.text()
+
+
+def test_change_label_from_ui(qtbot, window, monkeypatch):
+    from PySide6.QtWidgets import QInputDialog
+
+    _sync(qtbot, window)
+    monkeypatch.setattr(QInputDialog, "getItem", lambda *a, **k: ("새 라벨", True))
+    window.table.selectRow(0)
+    mail_id = window.selected_ids()[0]
+    window.edit_labels()
+    assert window.lib.get(mail_id).labels == ["새 라벨"]
