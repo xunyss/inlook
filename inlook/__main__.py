@@ -63,12 +63,21 @@ def main(argv: list[str] | None = None) -> int:
                          help=f"보존 경로 (기본 {DEFAULT_ARCHIVE_ROOT})")
     compact.add_argument("--dry-run", action="store_true", help="확인만 하고 바꾸지 않음")
 
+    repair = sub.add_parser("repair", help="저장된 메일의 첨부 목록(본문 이미지 제외)·보낸 사람 주소를 .msg 에서 다시 읽기")
+    repair.add_argument("archive_root", nargs="?", type=Path, default=DEFAULT_ARCHIVE_ROOT,
+                        help=f"보존 경로 (기본 {DEFAULT_ARCHIVE_ROOT})")
+    repair.add_argument("--dry-run", action="store_true", help="확인만 하고 바꾸지 않음")
+
     args = parser.parse_args(argv)
 
     if args.command == "compact":
         from .compact import run_compact
 
         return run_compact(args.archive_root, dry_run=args.dry_run)
+    if args.command == "repair":
+        from .repair import run_repair
+
+        return run_repair(args.archive_root, dry_run=args.dry_run)
     if args.command == "stats":
         from .stats import run_stats
 

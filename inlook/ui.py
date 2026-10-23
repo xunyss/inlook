@@ -294,7 +294,9 @@ class Preview(QWidget):
         def row(name: str, value: str) -> str:
             return f"<tr><td style='color:gray;padding-right:8px'>{name}</td><td>{html.escape(value)}</td></tr>"
 
-        sender = mail.sender_name + (f" <{mail.sender_email}>" if mail.sender_email else "")
+        # 회사 내부(Exchange) 주소 '/O=...' 는 보여주지 않는다 (repair 전 메일)
+        email = mail.sender_email if "@" in mail.sender_email else ""
+        sender = mail.sender_name + (f" <{email}>" if email else "")
         rows = [row("보낸 사람", sender), row("받은 시각", mail.received)]
         if mail.to:
             rows.append(row("받는 사람", mail.to))

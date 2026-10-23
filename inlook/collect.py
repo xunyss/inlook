@@ -23,7 +23,7 @@ from pathlib import Path
 from .errors import CODES
 from .probe import FAIL, INFO, PASS, RULE, WARN, Redactor, Reporter, describe_exc
 from .source import EXCLUDED_KINDS, FolderRef, MailHeader, MailSource
-from .msgfile import read_html
+from .msgfile import read_details
 from .store import Store, mail_key, msg_relpath
 
 DEFAULT_MARGIN_DAYS = 3  # 사용자 결정 2026-10-14. 시계 차이 + 지운 편지함에서 최근 메일 복원 대비
@@ -278,12 +278,17 @@ class _Collector:
                     raise _Step("E109", exc) from exc
                 # HTML 은 DB 에 넣지 않는다 (메일당 수백 KB). 미리보기는 .msg 에서 꺼낸다.
                 # 저장한 .msg 에서 HTML 을 못 꺼내는 경우에만 COM 이 준 HTML 을 DB 에 남긴다.
+                # 첨부 목록은 본문 이미지를 빼고, 보낸 사람은 Exchange 주소 대신 SMTP 주소로.
                 try:
-                    from_msg = read_html(path)
+                    details = read_details(path)
                 except Exception:
-                    from_msg = ""
-                if from_msg:
-                    record.html_body = ""
+                    details = None
+                if details is not None:
+                    if details.html:
+                        record.html_body = ""
+                    record.attachments = details.attachments
+                    if details.sender_smtp and "@" not in record.sender_email:
+                        record.sender_email = details.sender_smtp
                 try:
                     self.store.add(cand.key, cand.key_kind, record, rel, cand.labels, self.sync_id)
                 except Exception as exc:

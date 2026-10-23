@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -62,7 +62,8 @@ def test_second_sync_is_incremental_and_keeps_user_labels(tmp_path):
     before = store.count()
     store.close()
 
-    new = source._mail(("받은 편지함",), 0, "새로 온 메일", received=NOW + timedelta(hours=1))
+    # 증분 기준은 실제 동기화 시각(지금)이라, 새 메일도 지금 기준으로 만든다
+    new = source._mail(("받은 편지함",), 0, "새로 온 메일", received=datetime.now().replace(microsecond=0))
     assert run_collect(lambda: source, tmp_path) == 0
 
     store = Store(tmp_path)

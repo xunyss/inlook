@@ -36,6 +36,8 @@
 
 ### 확인 대기·남은 일
 - [ ] `compact.bat` 실행 결과 확인 (dry-run: 609건 비움 가능, 1건은 RTF 형식 메일이라 DB 의 HTML 유지 — 정상). 예상 DB 약 40MB
+- [ ] `repair.bat --dry-run` 결과 확인: 특히 "`.msg` 에 SMTP 주소 없음" 건수. 많으면 다른 방법(주소록 조회 등) 검토
+- [ ] UI 개선: 사용자가 참고할 메일 클라이언트 화면을 찾는 중. 현재 화면은 Qt 기본 위젯 그대로 (Windows 11 스타일에서 선택 줄이 칸마다 따로 칠해짐 등)
 - [ ] 회의 요청 메일의 HTML·본문 이미지가 미리보기에 나오는지 VDI 확인 (압축 RTF 해제, `rtfhtml.py`)
 - [ ] 첨부 파일 열기/저장 기능은 아직 없다 (미리보기에 이름만). 필요하면 .msg 의 첨부를 꺼내면 된다 (`msgfile.read_attachments`)
 - [ ] 메일함 보존 기간(약 1개월) 안에 사용자가 주기적으로 동기화해야 한다. 앱은 21일 넘으면 빨간 경고
@@ -163,6 +165,12 @@
 - **어두운 테마에서 본문 색 보정** (2026-10-15, 사용자 요청): 짙은 글자색은 밝기를 뒤집어 밝게, 밝은 배경색은 어둡게
   (`htmlcolor.darken_html`, 색상은 유지 — Outlook 다크 모드와 같은 방식). 미리보기의 ☀ 버튼으로 흰 배경 원본 보기
 - `library.py` 에 DB 조회·라벨 편집을 모아 Qt 없이 테스트한다. UI 는 pytest-qt offscreen 스모크 테스트
+
+- **첨부 목록에서 본문 이미지 제외, 보낸 사람 SMTP 주소** (2026-10-23, VDI 화면에서 발견):
+  서명 이미지가 첨부로 잡혀 거의 모든 메일에 📎, 회사 내부 발신자는 `/O=EXCHANGE...` 주소였다.
+  본문 이미지 = 숨김 첨부(PR_ATTACHMENT_HIDDEN) 또는 HTML 이 `cid:` 로 가리키는 첨부 (`msgfile.file_attachment_names`).
+  보낸 사람은 COM 의 PropertyAccessor(0x5D01) → 저장한 .msg 의 0x5D01/0x5D02 순. 주소록(GAL) 조회는 하지 않는다.
+  기존 DB 는 `repair.bat` (dry-run 먼저). 화면은 '@' 없는 주소를 숨긴다
 
 ## .msg 폴더 가져오기 (2026-10-15)
 - 사용자가 예전에 Outlook '다른 이름으로 저장' 으로 받아 둔 .msg 폴더를 inlook 으로 가져온다 (`import.bat <폴더>`, `importer.py`)

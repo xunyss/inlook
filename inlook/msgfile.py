@@ -7,6 +7,10 @@ MAPI 속성 스트림 이름: __substg1.0_<태그 4자리><형식 4자리>
   3701 0102 첨부 데이터 (바이너리)
   3712 001F Content-ID (유니코드)
   3707 001F 긴 파일명, 3704 001F 짧은 파일명
+  7FFE 000B 숨김 첨부 (고정 길이 속성 스트림 안)
+
+본문에 들어간 이미지(서명 로고 등)도 첨부로 저장돼 있다. 화면의 첨부 목록과 📎 에는
+본문이 cid: 로 가리키거나 숨김 표시된 첨부를 빼고 보여준다 (file_attachment_names).
 """
 
 from __future__ import annotations
@@ -28,11 +32,28 @@ _LONG_NAME = "__substg1.0_3707001F"
 _SHORT_NAME = "__substg1.0_3704001F"
 
 
+_ATTACH_PROPS_HEADER = 8  # 첨부 저장소의 고정 길이 속성 스트림 머리말 크기
+PR_ATTACHMENT_HIDDEN = 0x7FFE
+
+
 @dataclass(frozen=True)
 class Attachment:
     filename: str
     content_id: str  # <> 를 뗀 값. 없으면 ""
     data: bytes
+    hidden: bool = False  # PR_ATTACHMENT_HIDDEN (본문 이미지 등)
+
+
+def is_inline(att: Attachment, html: str) -> bool:
+    """본문에 들어간 첨부 (숨김 표시, 또는 HTML 이 cid: 로 가리킴)."""
+    if att.hidden:
+        return True
+    return bool(att.content_id) and f"cid:{att.content_id}".lower() in html.lower()
+
+
+def file_attachment_names(attachments: list[Attachment], html: str) -> list[str]:
+    """사용자에게 보여줄 첨부 파일 이름 (본문 이미지 제외)."""
+    return [a.filename for a in attachments if not is_inline(a, html)]
 
 
 def _text(ole: olefile.OleFileIO, path: list[str]) -> str:
@@ -50,7 +71,9 @@ def _attachments(ole: olefile.OleFileIO) -> list[Attachment]:
         data = ole.openstream([storage, _DATA]).read()
         name = _text(ole, [storage, _LONG_NAME]) or _text(ole, [storage, _SHORT_NAME])
         cid = _text(ole, [storage, _CONTENT_ID]).strip().strip("<>")
-        result.append(Attachment(name, cid, data))
+        props = _fixed_props(ole, f"{storage}/{_PROPS_STREAM}", _ATTACH_PROPS_HEADER)
+        hidden = props.get(PR_ATTACHMENT_HIDDEN, (0, b""))
+        result.append(Attachment(name, cid, data, hidden=hidden[0] == 0x000B and hidden[1][:1] != b"\0"))
     return result
 
 
@@ -87,6 +110,7 @@ PR_DISPLAY_CC = 0x0E03
 PR_SENDER_NAME = 0x0C1A
 PR_SENDER_EMAIL = 0x0C1F
 PR_SENDER_SMTP = 0x5D01
+PR_SENT_REPRESENTING_SMTP = 0x5D02
 PR_BODY = 0x1000
 PR_HTML = 0x1013
 PR_RTF_COMPRESSED = 0x1009
@@ -131,11 +155,13 @@ def _string(ole: olefile.OleFileIO, prop: int, ansi: str) -> str:
     return ""
 
 
-def _fixed_props(ole: olefile.OleFileIO) -> dict[int, tuple[int, bytes]]:
+def _fixed_props(
+    ole: olefile.OleFileIO, stream: str = _PROPS_STREAM, header: int = _TOP_HEADER
+) -> dict[int, tuple[int, bytes]]:
     """고정 길이 속성: 속성 ID → (형식, 8바이트 값)."""
-    data = _stream(ole, _PROPS_STREAM) or b""
+    data = _stream(ole, stream) or b""
     props: dict[int, tuple[int, bytes]] = {}
-    for offset in range(_TOP_HEADER, len(data) - 15, 16):
+    for offset in range(header, len(data) - 15, 16):
         tag = struct.unpack_from("<I", data, offset)[0]
         props[tag >> 16] = (tag & 0xFFFF, data[offset + 8:offset + 16])
     return props
@@ -203,6 +229,31 @@ def read_html(path: Path) -> str:
         return _html(ole, cpid, _CPID.get(cpid, "cp949") if cpid else "cp949")
 
 
+def _sender_smtp(ole: olefile.OleFileIO, ansi: str) -> str:
+    """보낸 사람의 SMTP 주소. 회사 내부(Exchange) 사람은 PR_SENDER_EMAIL 이 '/O=...' 주소라 쓰지 않는다."""
+    for prop in (PR_SENDER_SMTP, PR_SENT_REPRESENTING_SMTP):
+        value = _string(ole, prop, ansi).strip()
+        if "@" in value:
+            return value
+    return ""
+
+
+@dataclass(frozen=True)
+class MsgDetails:
+    html: str
+    sender_smtp: str  # 못 찾으면 ""
+    attachments: list[str]  # 본문 이미지를 뺀 첨부 파일 이름
+
+
+def read_details(path: Path) -> MsgDetails:
+    """수집·repair 가 저장한 .msg 에서 다시 읽는 값."""
+    with olefile.OleFileIO(str(path)) as ole:
+        cpid = _int(_fixed_props(ole), PR_INTERNET_CPID)
+        ansi = _CPID.get(cpid, "cp949") if cpid else "cp949"
+        html = _html(ole, cpid, ansi)
+        return MsgDetails(html, _sender_smtp(ole, ansi), file_attachment_names(_attachments(ole), html))
+
+
 def read_message(path: Path) -> MsgMessage:
     with olefile.OleFileIO(str(path)) as ole:
         props = _fixed_props(ole)
@@ -211,13 +262,13 @@ def read_message(path: Path) -> MsgMessage:
         html = _html(ole, cpid, ansi)
         search_key = _stream(ole, f"__substg1.0_{PR_SEARCH_KEY:04X}0102")
         message_id = _string(ole, PR_INTERNET_MESSAGE_ID, ansi).strip()
-        attachments = [a.filename for a in _attachments(ole)]
+        attachments = file_attachment_names(_attachments(ole), html)
         sent = _filetime(props, PR_CLIENT_SUBMIT_TIME)
         return MsgMessage(
             subject=_string(ole, PR_SUBJECT, ansi),
             message_class=_string(ole, PR_MESSAGE_CLASS, ansi) or "IPM.Note",
             sender_name=_string(ole, PR_SENDER_NAME, ansi),
-            sender_email=_string(ole, PR_SENDER_SMTP, ansi) or _string(ole, PR_SENDER_EMAIL, ansi),
+            sender_email=_sender_smtp(ole, ansi) or _string(ole, PR_SENDER_EMAIL, ansi),
             to=_string(ole, PR_DISPLAY_TO, ansi),
             cc=_string(ole, PR_DISPLAY_CC, ansi),
             received=_filetime(props, PR_MESSAGE_DELIVERY_TIME) or sent,

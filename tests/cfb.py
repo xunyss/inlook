@@ -152,8 +152,11 @@ def fake_mail_msg(
     html: str | None = None,
     html_charset: str = "utf-8",
     attachments: list[tuple[str, str, bytes]] | None = None,
+    hidden: tuple[int, ...] = (),
+    extra: dict[int, str] | None = None,
 ) -> None:
-    """메일 속성까지 갖춘 합성 .msg. received 는 naive 로컬 시각."""
+    """메일 속성까지 갖춘 합성 .msg. received 는 naive 로컬 시각.
+    hidden: 숨김 표시할 첨부 번호, extra: 더 넣을 문자열 속성 (속성 ID → 값)."""
 
     def text(prop: int, value: str) -> tuple[str, bytes]:
         return f"__substg1.0_{prop:04X}001F", value.encode("utf-16-le")
@@ -164,6 +167,7 @@ def fake_mail_msg(
     ])
     if message_id:
         tree.update([text(0x1035, message_id)])
+    tree.update(text(prop, value) for prop, value in (extra or {}).items())
     if search_key:
         tree["__substg1.0_300B0102"] = search_key
     if html is not None:
@@ -177,5 +181,7 @@ def fake_mail_msg(
         storage: Tree = {"__substg1.0_37010102": data, "__substg1.0_3707001F": name.encode("utf-16-le")}
         if cid:
             storage["__substg1.0_3712001F"] = cid.encode("utf-16-le")
+        if i in hidden:  # PR_ATTACHMENT_HIDDEN = true
+            storage["__properties_version1.0"] = b"\0" * 8 + struct.pack("<II", (0x7FFE << 16) | 0x000B, 0) + struct.pack("<Q", 1)
         tree[f"__attach_version1.0_#{i:08X}"] = storage
     write_cfb(path, tree)

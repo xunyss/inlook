@@ -59,6 +59,7 @@ OL_USER_ITEMS = 0  # OlTableContents
 OL_MSG_UNICODE = 9  # OlSaveAsType. olMSG(3)는 ANSI 라 한글이 깨질 수 있다
 PR_INTERNET_MESSAGE_ID = "http://schemas.microsoft.com/mapi/proptag/0x1035001F"
 PR_SEARCH_KEY = "http://schemas.microsoft.com/mapi/proptag/0x300B0102"
+PR_SENDER_SMTP = "http://schemas.microsoft.com/mapi/proptag/0x5D01001F"
 
 # Table 열. 순서가 _header() 의 인덱스와 맞아야 한다.
 # 기본 속성명(ReceivedTime 등)은 로컬 시각으로 돌아온다.
@@ -100,6 +101,19 @@ def _to_datetime(value) -> datetime | None:
         )
     except (AttributeError, ValueError):
         return None
+
+
+def _sender_email(item) -> str:
+    """회사 내부(Exchange) 사람은 SenderEmailAddress 가 '/O=...' 주소다. 그때만 메일의 SMTP 속성을 읽는다.
+    주소록(GAL) 조회는 하지 않는다. 여기서 못 찾으면 수집기가 저장한 .msg 에서 한 번 더 찾는다."""
+    address = str(_get(item, "SenderEmailAddress", "") or "")
+    if "@" in address:
+        return address
+    try:
+        smtp = str(item.PropertyAccessor.GetProperty(PR_SENDER_SMTP) or "")
+    except COM_ERRORS:
+        smtp = ""
+    return smtp if "@" in smtp else address
 
 
 def _to_hex(value) -> str | None:
@@ -204,7 +218,7 @@ class OutlookSource:
         attachments = [str(_get(a, "FileName", "")) for a in (_get(item, "Attachments", None) or [])]
         return MailRecord(
             header=header,
-            sender_email=str(_get(item, "SenderEmailAddress", "") or ""),
+            sender_email=_sender_email(item),
             to=str(_get(item, "To", "") or ""),
             cc=str(_get(item, "CC", "") or ""),
             sent=_to_datetime(_get(item, "SentOn")),
