@@ -179,3 +179,8 @@ def test_list_headers_and_row_hover(qtbot, window):
     assert window.table.hover_row == 3  # 칸이 아니라 줄 단위
     window.table.leaveEvent(None)
     assert window.table.hover_row == -1
+
+
+def test_app_icon_renders():
+    icon = theme.app_icon()
+    assert not icon.isNull() and {s.width() for s in icon.availableSizes()} >= {16, 32, 256}

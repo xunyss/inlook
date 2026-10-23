@@ -179,6 +179,11 @@
   미리보기 머리말(이니셜·받는 사람 3명 + '외 N명'·첨부/라벨 칩), 상태 표시줄. 아이콘은 Lucide SVG(ISC) 를 테마 색으로 칠한다.
   화면은 Mac 에서 offscreen 캡처(`MainWindow.grab()`)로 확인하며 다듬는다
 
+- **앱 아이콘** (2026-10-23, 사용자 선택): Outlook 패러디 — 봉투 + 글자 패널을 좌우 반전, O 대신 i, **주황**(작업 표시줄에서 Outlook 파랑과 구분).
+  `inlook/app.svg` 원본, `app.ico`(16~256px PNG 묶음, 바로가기용)는 그 SVG 로 만든다.
+  Windows 는 `SetCurrentProcessExplicitAppUserModelID` 로 작업 표시줄에 Python 대신 inlook 아이콘 (프로세스 한정, 시스템 설정 변경 없음).
+  리본 매크로 버튼은 Office 기본 아이콘만 고를 수 있다
+
 ## .msg 폴더 가져오기 (2026-10-15)
 - 사용자가 예전에 Outlook '다른 이름으로 저장' 으로 받아 둔 .msg 폴더를 inlook 으로 가져온다 (`import.bat <폴더>`, `importer.py`)
 - **Outlook·COM 을 쓰지 않는다.** olefile 로 .msg 의 MAPI 속성을 직접 읽는다 (`msgfile.read_message`):

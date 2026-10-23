@@ -54,6 +54,11 @@ app.bat E:\other        # 다른 보존 경로
 - 아래 상태 표시줄: 목록 건수, 전체 건수·마지막 동기화. 마지막 동기화가 21일 넘게 지나면 빨갛게 바뀐다
 - 미리보기의 받는 사람·참조는 3명까지만 보인다. **외 N명** 을 누르면 펼쳐진다
 
+### 바탕화면 바로가기 (선택)
+
+`app.bat` 을 우클릭 → **바로 가기 만들기** → 만든 바로가기를 바탕화면으로 옮긴다.
+바로가기 우클릭 → **속성 → 아이콘 변경** 에서 저장소의 `app.ico` 를 고르면 inlook 아이콘이 된다.
+
 ### Outlook 리본에 실행 버튼 달기 (선택)
 
 Outlook VBA 매크로로 `app.bat` 을 실행하는 버튼을 홈 탭에 단다. 처음 한 번만 하면 된다.
@@ -197,5 +202,6 @@ uv run python -m inlook probe --fake
 | `inlook/htmlcolor.py` | 어두운 테마 본문 색 보정 |
 | `inlook/stats.py`, `compact.py` | DB 크기 진단·줄이기 |
 | `inlook/ui.py` | PySide6 앱 |
+| `inlook/app.svg`, `app.ico` | 앱 아이콘 (Outlook 패러디). `.ico` 는 바로가기용 |
 | `inlook/theme.py`, `inlook/icons/` | 밝은/어두운 테마 색·스타일시트, 아이콘 ([Lucide](https://lucide.dev), ISC) |
 | `inlook/probe.py` | 자가진단 |

@@ -18,6 +18,7 @@ from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QApplication, QStyleFactory
 
 ICON_DIR = Path(__file__).resolve().parent / "icons"
+APP_ICON = Path(__file__).resolve().parent / "app.svg"  # 앱 아이콘 (Outlook 패러디). app.ico 는 이 파일로 만든다
 LIGHT, DARK = "light", "dark"
 
 
@@ -213,4 +214,19 @@ def icon(name: str, color: str, size: int = 18, selected: str | None = None) -> 
     result = QIcon(_pixmap(name, color, size))
     if selected:
         result.addPixmap(_pixmap(name, selected, size), QIcon.Mode.Selected)
+    return result
+
+
+def app_icon() -> QIcon:
+    """창·작업 표시줄 아이콘. 크기별로 미리 그려 둔다 (작은 크기에서도 선명하게)."""
+    renderer = QSvgRenderer(str(APP_ICON))
+    result = QIcon()
+    for size in (16, 24, 32, 48, 64, 128, 256):
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        renderer.render(painter, QRectF(0, 0, size, size))
+        painter.end()
+        result.addPixmap(pixmap)
     return result

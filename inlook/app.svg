@@ -1,0 +1,16 @@
+<!-- inlook app icon: Outlook parody (mirrored, "i" instead of "O"). Drawn for this project. app.ico is generated from this file. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="top" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#ffcf5c"/><stop offset="1" stop-color="#ffa62b"/></linearGradient>
+    <linearGradient id="low" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffa62b"/><stop offset="1" stop-color="#e07b12"/></linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#e2741b"/><stop offset="1" stop-color="#a94a06"/></linearGradient>
+  </defs>
+  <g transform="translate(256,0) scale(-1,1)">
+    <path d="M84 42 Q84 28 98 28 L222 28 Q236 28 236 42 L236 112 L160 166 L84 112 Z" fill="url(#top)"/>
+    <path d="M84 112 L160 166 L236 112 L236 214 Q236 228 222 228 L98 228 Q84 228 84 214 Z" fill="url(#low)"/>
+    <path d="M84 112 L160 166 L236 112" fill="none" stroke="#ffffff" stroke-opacity="0.35" stroke-width="5" stroke-linejoin="round"/>
+    <rect x="24" y="64" width="128" height="128" rx="18" fill="url(#panel)"/>
+  </g>
+  <rect x="157" y="112" width="22" height="58" rx="8" fill="#ffffff"/>
+  <circle cx="168" cy="91" r="13" fill="#ffffff"/>
+</svg>

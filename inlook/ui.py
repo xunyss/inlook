@@ -1075,8 +1075,17 @@ class MainWindow(QMainWindow):
 def run_app(
     root: Path, make_source: Callable[[], MailSource], log_dir: Path | None, settings_path: Path | None = None
 ) -> int:
+    if sys.platform == "win32":
+        # pythonw 로 띄우면 작업 표시줄에 Python 아이콘이 나온다. 이 프로세스에만 앱 ID 를 붙여 inlook 아이콘으로
+        try:
+            import ctypes
+
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("xunyss.inlook")
+        except Exception:
+            pass
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName("inlook")
+    app.setWindowIcon(theme.app_icon())
     if sys.platform == "win32":
         app.setFont(QFont("Malgun Gothic", 9))
 
