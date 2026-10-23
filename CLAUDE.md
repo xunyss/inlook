@@ -191,6 +191,11 @@
   표 글자가 Outlook 보다 작게 보이는 문제는 원인 미확인 → 목록 우클릭 "본문 HTML 구조 저장 (진단용)" (`mailhtml.shape`,
   글자는 x, 링크·주석·작성자 제거) 결과를 받아서 본다
 
+- **본문 이미지 글자 깨짐** (2026-10-23, VDI 화면에서 발견): Qt(QTextBrowser)는 큰 이미지를 `<img width=..>` 로
+  줄여 그릴 때 nearest-neighbor 로 그린다 (Mac 에서 픽셀 비교로 확인: Qt 결과 = FastTransformation 과 완전히 일치).
+  캡처 이미지 속 글자가 깨져 보였다. `MailBody` 가 HTML 의 표시 크기(`mailhtml.image_sizes`, 속성 → style 순)로
+  미리 SmoothTransformation 해서 넘긴다 (화면 배율 반영)
+
 ## .msg 폴더 가져오기 (2026-10-15)
 - 사용자가 예전에 Outlook '다른 이름으로 저장' 으로 받아 둔 .msg 폴더를 inlook 으로 가져온다 (`import.bat <폴더>`, `importer.py`)
 - **Outlook·COM 을 쓰지 않는다.** olefile 로 .msg 의 MAPI 속성을 직접 읽는다 (`msgfile.read_message`):

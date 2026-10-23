@@ -184,3 +184,30 @@ def test_list_headers_and_row_hover(qtbot, window):
 def test_app_icon_renders():
     icon = theme.app_icon()
     assert not icon.isNull() and {s.width() for s in icon.availableSizes()} >= {16, 32, 256}
+
+
+def test_inline_image_is_scaled_smoothly(qtbot):
+    """Qt 는 큰 이미지를 <img width> 로 줄일 때 nearest 로 그린다 → 미리 부드럽게 줄여서 넘긴다."""
+    from PySide6.QtCore import QByteArray, QBuffer, QIODevice, QUrl
+    from PySide6.QtGui import QColor, QImage
+
+    from inlook.ui import MailBody
+
+    src = QImage(400, 100, QImage.Format.Format_RGB32)
+    for x in range(400):
+        for y in range(100):
+            src.setPixelColor(x, y, QColor("black") if (x // 2 + y // 2) % 2 else QColor("white"))
+    ba = QByteArray()
+    buf = QBuffer(ba)
+    buf.open(QIODevice.OpenModeFlag.WriteOnly)
+    src.save(buf, "PNG")
+    body = MailBody()
+    qtbot.addWidget(body)
+    body.images = {"a.png@1": bytes(ba)}
+    body.sizes = {"a.png@1": (150, None)}
+    image = body.loadResource(0, QUrl("cid:a.png@1"))
+    assert (image.width(), image.height()) == (round(150 * body.devicePixelRatioF()), round(150 * body.devicePixelRatioF() / 4))
+    grays = {QColor(image.pixel(x, 10)).red() for x in range(image.width())}
+    assert any(0 < g < 255 for g in grays)  # 부드럽게 줄이면 회색이 생긴다 (nearest 는 흑백만)
+    body.sizes = {}
+    assert body.loadResource(0, QUrl("cid:a.png@1")).width() == 400  # 크기 지정이 없으면 그대로

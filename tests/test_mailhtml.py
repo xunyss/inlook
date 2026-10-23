@@ -35,3 +35,19 @@ def test_shape_keeps_structure_only():
         assert secret not in out
     assert "<p class=MsoNormal style='font-size:9pt'>xxx xx xxx</p>" in out
     assert "p.MsoNormal {font-size:10.0pt}" in out
+
+
+def test_image_sizes_from_attributes_and_style():
+    from inlook.mailhtml import image_sizes
+
+    html = (
+        '<img width="846" height="586" id="_x0000_i1039" src="cid:image001.png@01DD5A2E.7F63B820" '
+        'style="width:8.8125in; height:6.1041in">'
+        "<img src='cid:logo.png' style='width:1in'>"
+        "<img src='https://example.com/x.png' width=10>"
+        "<img src='cid:nosize.png'>"
+    )
+    sizes = image_sizes(html)
+    assert sizes["image001.png@01DD5A2E.7F63B820"] == (846, 586)
+    assert sizes["logo.png"] == (96, None)
+    assert set(sizes) == {"image001.png@01DD5A2E.7F63B820", "logo.png"}

@@ -55,6 +55,7 @@ from . import theme
 from .collect import run_collect
 from .htmlcolor import darken_html
 from .mailhtml import normalize as normalize_html
+from .mailhtml import image_sizes
 from .mailhtml import shape as html_shape
 from .msgfile import inline_images
 from .library import ALL, UNLABELED, Library, MailRow
@@ -435,23 +436,44 @@ class SyncDialog(QDialog):
 
 
 class MailBody(QTextBrowser):
-    """본문 표시. 'cid:' 이미지는 .msg 의 첨부에서 꺼내 보여준다. 원격(http) 이미지는 불러오지 않는다."""
+    """본문 표시. 'cid:' 이미지는 .msg 의 첨부에서 꺼내 보여준다. 원격(http) 이미지는 불러오지 않는다.
+
+    Qt 는 큰 이미지를 <img width=..> 크기로 줄여 그릴 때 픽셀을 건너뛰어(nearest) 캡처 이미지의 글자가 깨진다.
+    그래서 HTML 에 적힌 표시 크기로 미리 부드럽게 줄여서 넘긴다 (화면 배율만큼 더 크게)."""
 
     def __init__(self) -> None:
         super().__init__()
         self.images: dict[str, bytes] = {}
+        self.sizes: dict[str, tuple[float | None, float | None]] = {}
 
     def loadResource(self, kind: int, url: QUrl):  # noqa: N802
         if url.scheme().lower() == "cid":
-            data = self.images.get(url.path()) or self.images.get(url.path().split("@", 1)[0])
+            key = url.path()
+            data = self.images.get(key) or self.images.get(key.split("@", 1)[0])
             if data:
                 image = QImage.fromData(data)
                 if not image.isNull():
-                    return image
+                    return self._fit(image, self.sizes.get(key))
             return None
         if url.scheme().lower() in ("http", "https"):
             return None
         return super().loadResource(kind, url)
+
+    def _fit(self, image: QImage, size: tuple[float | None, float | None] | None) -> QImage:
+        if not size:
+            return image
+        width, height = size
+        if width is None:
+            width = height * image.width() / image.height()
+        if height is None:
+            height = width * image.height() / image.width()
+        ratio = self.devicePixelRatioF()
+        target = QSize(max(1, round(width * ratio)), max(1, round(height * ratio)))
+        if image.width() <= target.width() and image.height() <= target.height():
+            return image  # 줄일 필요 없음
+        scaled = image.scaled(target, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        scaled.setDevicePixelRatio(ratio)
+        return scaled
 
 
 _AVATAR_COLORS = ("#5b7be0", "#2f9e8f", "#d0703c", "#9b59b6", "#c2507a", "#3c8dbc", "#6d8b3a", "#b07d2b")
@@ -631,6 +653,7 @@ class Preview(QWidget):
         if mail is None:
             return
         self.body.images = {}
+        self.body.sizes = image_sizes(mail.html_body)
         if "cid:" in mail.html_body and mail.msg_path.exists():
             try:
                 self.body.images = inline_images(mail.msg_path)

@@ -4,6 +4,9 @@ Qt 는 테두리 CSS 를 '굵기 모양 색' 순서(1px solid black)로만 읽�
 Excel 은 '.5pt solid windowtext' 처럼 쓰고 Windows 시스템 색 이름(windowtext)을 써서 표 테두리가 통째로 사라진다.
 여기서 border 선언을 Qt 순서로 다시 쓴다. 메일 원본(.msg)은 건드리지 않고 미리보기에서만 바꾼다.
 
+image_sizes(): <img> 에 지정된 표시 크기. Qt 는 큰 이미지를 줄여 그릴 때 픽셀을 건너뛰어(nearest) 글자가 깨지므로,
+미리보기가 이 크기로 미리 부드럽게 줄여 둔다.
+
 shape(): 본문 HTML 의 구조만 남긴 진단용 사본 (글자는 x 로, 링크·주석·문서 속성 제거). 내용은 남지 않는다.
 """
 
@@ -50,6 +53,42 @@ def _border_value(value: str) -> str:
 def normalize(html: str) -> str:
     """테두리 선언을 Qt 가 읽는 순서로."""
     return _BORDER.sub(lambda m: m[1] + m[2] + _border_value(m[3]), html)
+
+
+# --- 본문 이미지 표시 크기 ---
+
+_IMG = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
+_ATTR_VALUE = r"\s{0}\s*=\s*(?:\"([^\"]*)\"|'([^']*)'|([^\s>]+))"
+_STYLE_SIZE = re.compile(r"(?<![\w-])(width|height)\s*:\s*(\d*\.?\d+)\s*(px|pt|in|cm|mm)?", re.IGNORECASE)
+
+
+def _attr(tag: str, name: str) -> str | None:
+    m = re.search(_ATTR_VALUE.format(name), tag, re.IGNORECASE)
+    return next((g for g in m.groups() if g is not None), None) if m else None
+
+
+def _length(value: str | None, unit: str | None = None) -> float | None:
+    if not value:
+        return None
+    m = _WIDTH.match(value.strip() + (unit or ""))
+    if not m:
+        return None
+    return float(m[1]) * _PX_PER[(m[2] or "").lower()]
+
+
+def image_sizes(html: str) -> dict[str, tuple[float | None, float | None]]:
+    """'cid:' 뒤의 값 → (너비, 높이) px. HTML 속성(width=846)을 먼저, 없으면 style(width:8.8125in)."""
+    sizes: dict[str, tuple[float | None, float | None]] = {}
+    for tag in _IMG.findall(html):
+        src = _attr(tag, "src") or ""
+        if not src.lower().startswith("cid:"):
+            continue
+        style = {k.lower(): _length(v, u) for k, v, u in _STYLE_SIZE.findall(_attr(tag, "style") or "")}
+        width = _length(_attr(tag, "width")) or style.get("width")
+        height = _length(_attr(tag, "height")) or style.get("height")
+        if width or height:
+            sizes[src[4:]] = (width, height)
+    return sizes
 
 
 # --- 진단용 구조 사본 ---
