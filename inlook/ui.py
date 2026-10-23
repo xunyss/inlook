@@ -1,30 +1,34 @@
 """PySide6 데스크톱 뷰어: 검색, 라벨, 미리보기, 동기화.
 
-화면 구성: [라벨 트리] | [메일 목록] | [미리보기]
+화면 구성: [툴바] / [라벨] | [메일 목록] | [미리보기] / [상태 표시줄]
+색·아이콘·스타일시트는 theme.py. 툴바에서 밝은/어두운 테마를 바꾸고, 고른 값은 설정 파일에 기억한다.
 동기화는 작업 스레드에서 collect 엔진을 돌린다. COM 은 그 스레드 안에서 초기화한다
 (pythoncom.CoInitialize). UI 스레드에서는 Outlook 에 접근하지 않는다.
 """
 
 from __future__ import annotations
 
+import hashlib
 import html
 import sys
 import threading
 import traceback
 from collections.abc import Callable
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, QThread, QTimer, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontDatabase, QImage, QKeySequence, QPalette, QShortcut, QTextCursor
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, QPoint, QRect, QSize, Qt, QThread, QTimer, QUrl, Signal
+from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont, QFontDatabase, QImage, QKeySequence, QPainter, QPalette, QShortcut, QTextCursor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QDialog,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
     QLabel,
+    QLayout,
     QLineEdit,
     QMainWindow,
     QMenu,
@@ -32,15 +36,22 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
     QSplitter,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
     QTableView,
     QTextBrowser,
+    QToolBar,
+    QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
+from . import theme
 from .collect import run_collect
 from .htmlcolor import darken_html
 from .msgfile import inline_images
@@ -49,17 +60,43 @@ from .source import MailSource
 
 SYNC_WARN_DAYS = 21  # 보존 기간(약 1개월)보다 넉넉히 앞에서 경고
 ROLE_LABEL = Qt.ItemDataRole.UserRole
+ROLE_COUNT = Qt.ItemDataRole.UserRole + 1
+WEEKDAYS = "월화수목금토일"
+RECIPIENTS_SHOWN = 3  # 받는 사람·참조는 처음에 이만큼만 보이고 나머지는 '외 N명'
+
+
+def friendly_date(received: str, today: date | None = None) -> str:
+    """목록용 짧은 날짜: 오늘 14:51 / 어제 14:51 / 10-21 (화) / 2025-11-03."""
+    try:
+        when = datetime.strptime(received[:16], "%Y-%m-%d %H:%M")
+    except ValueError:
+        return received
+    today = today or date.today()
+    if when.date() == today:
+        return f"오늘 {when:%H:%M}"
+    if when.date() == today - timedelta(days=1):
+        return f"어제 {when:%H:%M}"
+    if when.year == today.year:
+        return f"{when:%m-%d} ({WEEKDAYS[when.weekday()]})"
+    return f"{when:%Y-%m-%d}"
+
+
+def split_people(text: str) -> list[str]:
+    return [p.strip() for p in text.replace(",", ";").split(";") if p.strip()]
 
 
 # ---------------------------------------------------------------- 메일 목록
 
 
 class MailModel(QAbstractTableModel):
-    HEADERS = ("수신", "보낸 사람", "제목", "라벨", "첨부")
+    HEADERS = ("보낸 사람", "제목", "라벨", "", "받은 시각")
+    SENDER, SUBJECT, LABEL, CLIP, DATE = range(5)
 
     def __init__(self) -> None:
         super().__init__()
         self.rows: list[MailRow] = []
+        self.clip_icon = None
+        self.muted = QColor("gray")
 
     def set_rows(self, rows: list[MailRow]) -> None:
         self.beginResetModel()
@@ -73,28 +110,42 @@ class MailModel(QAbstractTableModel):
         return len(self.HEADERS)
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):  # noqa: N802
-        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
+        if orientation != Qt.Orientation.Horizontal:
+            return None
+        if role == Qt.ItemDataRole.DisplayRole:
             return self.HEADERS[section]
+        if role == Qt.ItemDataRole.TextAlignmentRole:
+            right = section == self.DATE
+            return int((Qt.AlignmentFlag.AlignRight if right else Qt.AlignmentFlag.AlignLeft) | Qt.AlignmentFlag.AlignVCenter)
         return None
 
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
         if not index.isValid():
             return None
         row = self.rows[index.row()]
+        col = index.column()
         if role == Qt.ItemDataRole.DisplayRole:
-            col = index.column()
-            if col == 0:
-                return row.received[:16]
-            if col == 1:
+            if col == self.SENDER:
                 return row.sender
-            if col == 2:
+            if col == self.SUBJECT:
                 return row.subject or "(제목 없음)"
-            if col == 3:
+            if col == self.LABEL:
                 return ", ".join(_short(label) for label in row.labels)
-            if col == 4:
-                return "📎" if row.has_attachments else ""
-        if role == Qt.ItemDataRole.ToolTipRole and index.column() == 3:
-            return "\n".join(row.labels)
+            if col == self.DATE:
+                return friendly_date(row.received)
+        if role == Qt.ItemDataRole.DecorationRole and col == self.CLIP and row.has_attachments:
+            return self.clip_icon
+        if role == Qt.ItemDataRole.ToolTipRole:
+            if col == self.LABEL:
+                return "\n".join(row.labels)
+            if col == self.DATE:
+                return row.received
+            if col == self.CLIP and row.has_attachments:
+                return "첨부 있음"
+        if role == Qt.ItemDataRole.TextAlignmentRole and col == self.DATE:
+            return int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        if role == Qt.ItemDataRole.ForegroundRole and col in (self.LABEL, self.DATE):
+            return self.muted
         return None
 
 
@@ -104,6 +155,111 @@ def _menu_text(text: str) -> str:
 
 def _short(label: str) -> str:
     return label.rsplit("/", 1)[-1]
+
+
+class CountDelegate(QStyledItemDelegate):
+    """라벨 트리: 이름 오른쪽에 건수 배지. 한 칸에 그려서 선택 표시가 끊기지 않게 한다."""
+
+    def __init__(self, parent) -> None:
+        super().__init__(parent)
+        self.colors = theme.colors(theme.LIGHT)
+
+    def sizeHint(self, option, index) -> QSize:  # noqa: N802
+        size = super().sizeHint(option, index)
+        return QSize(size.width() + 40, max(size.height(), 28))
+
+    def paint(self, painter: QPainter, option, index) -> None:
+        count = index.data(ROLE_COUNT)
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        badge = QRect()
+        if count is not None:
+            text = f"{count:,}"
+            fm = opt.fontMetrics
+            width = fm.horizontalAdvance(text) + 14
+            badge = QRect(opt.rect.right() - width - 6, opt.rect.center().y() - 9, width, 18)
+            room = badge.left() - opt.rect.left() - opt.decorationSize.width() - 16
+            opt.text = fm.elidedText(opt.text, Qt.TextElideMode.ElideRight, max(room, 20))
+        widget = opt.widget
+        style = widget.style() if widget else QApplication.style()
+        style.drawControl(QStyle.ControlElement.CE_ItemViewItem, opt, painter, widget)
+        if count is not None:
+            painter.save()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(self.colors.raised))
+            painter.drawRoundedRect(badge, 9, 9)
+            painter.setPen(QColor(self.colors.muted))
+            painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, f"{count:,}")
+            painter.restore()
+
+
+class FlowLayout(QLayout):
+    """칩(첨부·라벨)을 줄 바꿈하며 늘어놓는다."""
+
+    def __init__(self, parent=None, spacing: int = 6) -> None:
+        super().__init__(parent)
+        self._items: list = []
+        self._spacing = spacing
+        self.setContentsMargins(0, 0, 0, 0)
+
+    def addItem(self, item) -> None:  # noqa: N802
+        self._items.append(item)
+
+    def count(self) -> int:
+        return len(self._items)
+
+    def itemAt(self, i):  # noqa: N802
+        return self._items[i] if 0 <= i < len(self._items) else None
+
+    def takeAt(self, i):  # noqa: N802
+        return self._items.pop(i) if 0 <= i < len(self._items) else None
+
+    def clear(self) -> None:
+        while self._items:
+            item = self._items.pop()
+            if item.widget():
+                item.widget().hide()  # deleteLater 는 늦게 지워져서, 그 사이 새 칩과 겹쳐 보인다
+                item.widget().deleteLater()
+
+    def hasHeightForWidth(self) -> bool:  # noqa: N802
+        return True
+
+    def heightForWidth(self, width: int) -> int:  # noqa: N802
+        return self._place(QRect(0, 0, width, 0), move=False)
+
+    def setGeometry(self, rect) -> None:  # noqa: N802
+        super().setGeometry(rect)
+        self._place(rect, move=True)
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        return self.minimumSize()
+
+    def minimumSize(self) -> QSize:  # noqa: N802
+        size = QSize()
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        return size
+
+    def _place(self, rect: QRect, move: bool) -> int:
+        x, y, line = rect.x(), rect.y(), 0
+        for item in self._items:
+            hint = item.sizeHint()
+            if x + hint.width() > rect.right() and line > 0:
+                x, y, line = rect.x(), y + line + self._spacing, 0
+            if move:
+                item.setGeometry(QRect(QPoint(x, y), hint))
+            x += hint.width() + self._spacing
+            line = max(line, hint.height())
+        return y + line - rect.y()
+
+
+def card() -> QFrame:
+    frame = QFrame(objectName="card")
+    layout = QVBoxLayout(frame)
+    layout.setContentsMargins(1, 1, 1, 1)
+    layout.setSpacing(0)
+    return frame
 
 
 # ---------------------------------------------------------------- 동기화
@@ -242,77 +398,177 @@ class MailBody(QTextBrowser):
         return super().loadResource(kind, url)
 
 
+_AVATAR_COLORS = ("#5b7be0", "#2f9e8f", "#d0703c", "#9b59b6", "#c2507a", "#3c8dbc", "#6d8b3a", "#b07d2b")
+
+
+class Avatar(QLabel):
+    """보낸 사람 이름 첫 글자 동그라미."""
+
+    def __init__(self) -> None:
+        super().__init__(objectName="avatar")
+        self.setFixedSize(36, 36)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+    def set_name(self, name: str) -> None:
+        name = name.strip().strip("'\"")
+        self.setText(name[:1].upper() if name else "?")
+        color = _AVATAR_COLORS[int(hashlib.md5(name.encode("utf-8")).hexdigest(), 16) % len(_AVATAR_COLORS)]
+        self.setStyleSheet(f"background: {color};")
+
+
 class Preview(QWidget):
-    def __init__(self, open_msg: Callable[[], None], edit_labels: Callable[[], None]) -> None:
+    def __init__(self) -> None:
         super().__init__()
-        self.header = QLabel()
-        self.header.setTextFormat(Qt.TextFormat.RichText)
-        self.header.setWordWrap(True)
-        self.header.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.open_btn = QPushButton(".msg 열기")
-        self.open_btn.clicked.connect(open_msg)
-        self.label_btn = QPushButton("라벨 변경 ▾")
-        self.label_btn.clicked.connect(edit_labels)
+        self.colors = theme.colors(theme.LIGHT)
+        self.dark = False
+        self._mail = None
+        self._expanded = False
+
+        self.title = QLabel(objectName="title", wordWrap=True)
+        self.title.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.avatar = Avatar()
+        self.sender = QLabel(objectName="sender")
+        self.sender.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.when = QLabel(objectName="muted")
+        self.recipients = QLabel(objectName="muted", wordWrap=True)
+        self.recipients.setTextFormat(Qt.TextFormat.RichText)
+        self.recipients.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.LinksAccessibleByMouse
+        )
+        self.recipients.linkActivated.connect(self._toggle_recipients)
+        # 어두운 테마면 본문 색을 보정해서 보여주고, 이 버튼을 누르면 흰 배경 원본으로 (Outlook 의 배경 전환과 같음)
+        self.paper_btn = QToolButton(objectName="flat", text="원본 색", checkable=True)
+        self.paper_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.paper_btn.setToolTip("본문을 흰 배경(원래 색)으로 보기")
+        self.paper_btn.toggled.connect(self._render_body)
+
+        who = QVBoxLayout()
+        who.setSpacing(2)
+        line = QHBoxLayout()
+        line.addWidget(self.sender, 1)
+        line.addWidget(self.when)
+        who.addLayout(line)
+        who.addWidget(self.recipients)
+        head = QHBoxLayout()
+        head.setSpacing(10)
+        head.addWidget(self.avatar, 0, Qt.AlignmentFlag.AlignTop)
+        head.addLayout(who, 1)
+
+        self.chips = QWidget()
+        self.chip_layout = FlowLayout(self.chips)
+        tools = QHBoxLayout()
+        tools.addWidget(self.chips, 1)
+        tools.addWidget(self.paper_btn, 0, Qt.AlignmentFlag.AlignTop)
+
+        header = QWidget()
+        header_layout = QVBoxLayout(header)
+        header_layout.setContentsMargins(18, 14, 18, 10)
+        header_layout.setSpacing(10)
+        header_layout.addWidget(self.title)
+        header_layout.addLayout(head)
+        header_layout.addLayout(tools)
+        self.header = header
+
         self.body = MailBody()
         self.body.setOpenLinks(False)  # 링크를 눌러도 이 창에서 이동하지 않는다
         self.body.anchorClicked.connect(self._link)
-        self._mail = None
-        # 어두운 테마면 본문 색을 보정해서 보여주고, ☀ 를 누르면 흰 배경 원본으로 (Outlook 의 배경 전환과 같음)
-        self.dark = QApplication.palette().color(QPalette.ColorRole.Base).lightness() < 128
-        self.paper_btn = QPushButton("☀")
-        self.paper_btn.setCheckable(True)
-        self.paper_btn.setToolTip("본문을 흰 배경(원래 색)으로 보기")
-        self.paper_btn.setFixedWidth(36)
-        self.paper_btn.setVisible(self.dark)
-        self.paper_btn.toggled.connect(self._render_body)
-        self._dark_palette = self.body.palette()
-        self._paper_palette = QPalette(self._dark_palette)
-        for group in (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive, QPalette.ColorGroup.Disabled):
-            self._paper_palette.setColor(group, QPalette.ColorRole.Base, QColor("white"))
-            self._paper_palette.setColor(group, QPalette.ColorRole.Text, QColor("black"))
+        self.body.document().setDocumentMargin(16)
 
-        buttons = QHBoxLayout()
-        buttons.addStretch(1)
-        buttons.addWidget(self.paper_btn)
-        buttons.addWidget(self.label_btn)
-        buttons.addWidget(self.open_btn)
+        self.empty = QLabel("메일을 고르면 여기에 보입니다", objectName="muted", alignment=Qt.AlignmentFlag.AlignCenter)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.header)
-        layout.addLayout(buttons)
+        layout.setSpacing(0)
+        layout.addWidget(header)
+        layout.addWidget(QFrame(objectName="divider"))
         layout.addWidget(self.body, 1)
+        layout.addWidget(self.empty, 1)
         self.clear()
 
-    def clear(self) -> None:
+    def set_theme(self, colors: theme.Colors, dark: bool) -> None:
+        self.colors = colors
+        self.dark = dark
+        self.paper_btn.setIcon(theme.icon("sun", colors.text, 16))
+        self.paper_btn.setVisible(dark and self._mail is not None and bool(self._mail.html_body))
+        if self._mail is not None:
+            self._fill_chips(self._mail)
+            self._render_body()
+
+    def clear(self, message: str = "") -> None:
         self._mail = None
-        self.header.setText("")
+        self.header.setVisible(bool(message))
+        self.title.setText(message)
+        for widget in (self.avatar, self.sender, self.when, self.recipients, self.chips, self.paper_btn):
+            widget.setVisible(False)
         self.body.clear()
-        self.open_btn.setEnabled(False)
-        self.label_btn.setEnabled(False)
+        self.body.setVisible(False)
+        self.empty.setVisible(not message)
 
     def show_mail(self, mail) -> None:
-        def row(name: str, value: str) -> str:
-            return f"<tr><td style='color:gray;padding-right:8px'>{name}</td><td>{html.escape(value)}</td></tr>"
-
+        self._mail = mail
+        self._expanded = False
+        self.header.setVisible(True)
+        self.empty.setVisible(False)
+        self.body.setVisible(True)
+        for widget in (self.avatar, self.sender, self.when, self.recipients, self.chips):
+            widget.setVisible(True)
+        self.title.setText(mail.subject or "(제목 없음)")
+        self.avatar.set_name(mail.sender_name or mail.sender_email)
         # 회사 내부(Exchange) 주소 '/O=...' 는 보여주지 않는다 (repair 전 메일)
         email = mail.sender_email if "@" in mail.sender_email else ""
-        sender = mail.sender_name + (f" <{email}>" if email else "")
-        rows = [row("보낸 사람", sender), row("받은 시각", mail.received)]
-        if mail.to:
-            rows.append(row("받는 사람", mail.to))
-        if mail.cc:
-            rows.append(row("참조", mail.cc))
-        if mail.attachments:
-            rows.append(row("첨부", ", ".join(mail.attachments)))
-        rows.append(row("라벨", ", ".join(mail.labels) or "(없음)"))
-        self.header.setText(
-            f"<div style='font-size:14pt;font-weight:bold'>{html.escape(mail.subject or '(제목 없음)')}</div>"
-            f"<table>{''.join(rows)}</table>"
+        muted = self.colors.muted
+        self.sender.setText(
+            f"{html.escape(mail.sender_name or email or '(알 수 없음)')}"
+            + (f" <span style='color:{muted};font-weight:400'>&lt;{html.escape(email)}&gt;</span>" if email and mail.sender_name else "")
         )
-        self._mail = mail
+        self.when.setText(mail.received[:16])
+        self.when.setToolTip(mail.received)
+        self._fill_recipients()
+        self._fill_chips(mail)
+        self.paper_btn.setVisible(self.dark and bool(mail.html_body))
         self._render_body()
-        self.open_btn.setEnabled(mail.msg_path.exists())
-        self.label_btn.setEnabled(True)
+
+    def _fill_recipients(self) -> None:
+        mail = self._mail
+        lines = []
+        for name, value in (("받는 사람", mail.to), ("참조", mail.cc)):
+            people = split_people(value)
+            if not people:
+                continue
+            shown = people if self._expanded else people[:RECIPIENTS_SHOWN]
+            text = ", ".join(html.escape(p) for p in shown)
+            if len(people) > len(shown):
+                text += f" <a href='more' style='color:{self.colors.accent};text-decoration:none'>외 {len(people) - len(shown)}명</a>"
+            lines.append(f"{name}&nbsp;&nbsp;{text}")
+        if self._expanded:
+            lines.append(f"<a href='less' style='color:{self.colors.accent};text-decoration:none'>접기</a>")
+        self.recipients.setText("<br>".join(lines))
+        self.recipients.setVisible(bool(lines))
+
+    def _toggle_recipients(self, _link: str) -> None:
+        self._expanded = not self._expanded
+        self._fill_recipients()
+
+    def _fill_chips(self, mail) -> None:
+        self.chip_layout.clear()
+        for name in mail.attachments:
+            self.chip_layout.addWidget(self._chip(name, name, "paperclip", "chip"))
+        for label in mail.labels:
+            self.chip_layout.addWidget(self._chip(_short(label), label, "tag", "labelChip"))
+        self.chips.setVisible(bool(mail.attachments or mail.labels))
+        self.chips.updateGeometry()
+
+    def _chip(self, text: str, tip: str, icon_name: str, kind: str) -> QFrame:
+        chip = QFrame(objectName=kind)
+        chip.setToolTip(tip)
+        row = QHBoxLayout(chip)
+        row.setContentsMargins(8, 3, 10, 3)
+        row.setSpacing(5)
+        icon = QLabel()
+        icon.setPixmap(theme.icon(icon_name, self.colors.muted, 13).pixmap(13, 13))
+        row.addWidget(icon)
+        row.addWidget(QLabel(text))
+        return chip
 
     def _render_body(self) -> None:
         mail = self._mail
@@ -325,7 +581,13 @@ class Preview(QWidget):
             except Exception:
                 pass  # 이미지가 안 보일 뿐 본문은 보여준다
         paper = not self.dark or self.paper_btn.isChecked()
-        self.body.setPalette(self._paper_palette if paper and self.dark else self._dark_palette)
+        palette = self.body.palette()
+        base, text = (self.colors.paper, "#000000") if paper and self.dark else (self.colors.surface, self.colors.text)
+        for group in (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive, QPalette.ColorGroup.Disabled):
+            palette.setColor(group, QPalette.ColorRole.Base, QColor(base))
+            palette.setColor(group, QPalette.ColorRole.Text, QColor(text))
+        self.body.setPalette(palette)
+        self.body.setStyleSheet(f"background: {base}; color: {text};")
         if mail.html_body:
             self.body.setHtml(mail.html_body if paper else darken_html(mail.html_body))
         else:
@@ -338,38 +600,74 @@ class Preview(QWidget):
 
 # ---------------------------------------------------------------- 메인 창
 
+_LABEL_ICONS = {"받은 편지함": "inbox", "보낸 편지함": "send", "정크 메일": "shield-alert", "보관": "archive"}
+
 
 class MainWindow(QMainWindow):
-    def __init__(self, root: Path, make_source: Callable[[], MailSource], log_dir: Path | None) -> None:
+    def __init__(
+        self,
+        root: Path,
+        make_source: Callable[[], MailSource],
+        log_dir: Path | None,
+        settings_path: Path | None = None,
+    ) -> None:
         super().__init__()
         self.root = root
         self.make_source = make_source
         self.log_dir = log_dir
+        self.settings_path = settings_path
         self.lib = Library(root)
         self.label_filter: str | None = ALL
+        self.mode = theme.load_mode(settings_path)
+        self.colors = theme.colors(self.mode)
         self.setWindowTitle(f"inlook — {root}")
         self.resize(1400, 860)
 
-        # 위: 검색 + 동기화
-        self.search = QLineEdit(placeholderText="검색 (제목·보낸 사람·받는 사람·본문·첨부 파일명, 띄어쓰기로 여러 단어)")
+        # 위: 툴바 (동기화 · 검색 · 메일 동작 · 테마)
+        bar = QToolBar(objectName="main", movable=False, floatable=False)
+        bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        bar.setIconSize(QSize(17, 17))
+        bar.setContextMenuPolicy(Qt.ContextMenuPolicy.PreventContextMenu)
+        self.addToolBar(bar)
+        self.sync_act = bar.addAction("동기화", self.sync)
+        self.sync_act.setToolTip("Outlook 의 새 메일을 가져와 저장합니다")
+        bar.widgetForAction(self.sync_act).setObjectName("primary")
+        gap = QWidget()
+        gap.setFixedWidth(8)
+        bar.addWidget(gap)
+        self.search = QLineEdit(objectName="search", placeholderText="메일 검색 — 제목·사람·본문·첨부 파일명, 띄어쓰기로 여러 단어")
         self.search.setClearButtonEnabled(True)
+        self.search.setMaximumWidth(720)
+        self.search.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._search_icon = QAction(self)
+        self.search.addAction(self._search_icon, QLineEdit.ActionPosition.LeadingPosition)
         self._debounce = QTimer(self, singleShot=True, interval=250)
         self._debounce.timeout.connect(self.refresh_list)
         self.search.textChanged.connect(self._debounce.start)
-        self.sync_btn = QPushButton("동기화")
-        self.sync_btn.clicked.connect(self.sync)
-        self.info = QLabel()
-        top = QHBoxLayout()
-        top.addWidget(self.search, 1)
-        top.addWidget(self.info)
-        top.addWidget(self.sync_btn)
+        bar.addWidget(self.search)
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        bar.addWidget(spacer)
+        self.label_act = bar.addAction("라벨 변경", self.edit_labels)
+        self.open_act = bar.addAction(".msg 열기", self.open_msg)
+        self.open_act.setToolTip("Outlook 으로 원본 열기 (목록에서 더블클릭)")
+        self.delete_act = bar.addAction("삭제", self.delete_selected)
+        self.delete_act.setToolTip("선택한 메일 삭제 (Del)")
+        bar.addSeparator()
+        self.theme_act = bar.addAction("", self.toggle_theme)
 
         # 왼쪽: 라벨
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
+        self.tree.setIndentation(14)
+        self.tree.setIconSize(QSize(16, 16))
+        self.count_delegate = CountDelegate(self.tree)
+        self.tree.setItemDelegate(self.count_delegate)
         self.tree.itemSelectionChanged.connect(self._label_selected)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._tree_menu)
+        left = card()
+        left.layout().addWidget(self.tree)
 
         # 가운데: 목록
         self.model = MailModel()
@@ -378,14 +676,17 @@ class MainWindow(QMainWindow):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.table.verticalHeader().hide()
-        self.table.verticalHeader().setDefaultSectionSize(22)
+        self.table.verticalHeader().setDefaultSectionSize(30)
         self.table.setWordWrap(False)
         self.table.setShowGrid(False)
-        self.table.setAlternatingRowColors(True)
+        self.table.setIconSize(QSize(14, 14))
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        for col, width in ((0, 120), (1, 150), (3, 140), (4, 36)):
+        header.setHighlightSections(False)
+        header.setSectionResizeMode(MailModel.SUBJECT, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(MailModel.CLIP, QHeaderView.ResizeMode.Fixed)
+        for col, width in ((MailModel.SENDER, 170), (MailModel.LABEL, 130), (MailModel.CLIP, 30), (MailModel.DATE, 120)):
             self.table.setColumnWidth(col, width)
         self.table.selectionModel().selectionChanged.connect(self._mail_selected)
         self.table.doubleClicked.connect(lambda _: self.open_msg())
@@ -394,23 +695,68 @@ class MainWindow(QMainWindow):
         delete = QShortcut(QKeySequence(QKeySequence.StandardKey.Delete), self.table)
         delete.setContext(Qt.ShortcutContext.WidgetShortcut)
         delete.activated.connect(self.delete_selected)
+        middle = card()
+        middle.layout().addWidget(self.table)
 
         # 오른쪽: 미리보기
-        self.preview = Preview(self.open_msg, self.edit_labels)
+        self.preview = Preview()
+        right = card()
+        right.layout().addWidget(self.preview)
 
         split = QSplitter()
-        split.addWidget(self.tree)
-        split.addWidget(self.table)
-        split.addWidget(self.preview)
-        split.setSizes([240, 620, 540])
+        split.setHandleWidth(8)
+        split.setChildrenCollapsible(False)
+        for pane in (left, middle, right):
+            split.addWidget(pane)
+        split.setSizes([250, 610, 540])
 
         central = QWidget()
         layout = QVBoxLayout(central)
-        layout.addLayout(top)
+        layout.setContentsMargins(8, 4, 8, 0)
         layout.addWidget(split, 1)
         self.setCentralWidget(central)
 
+        # 아래: 상태 표시줄
+        self.count_label = QLabel()
+        self.info = QLabel()
+        self.statusBar().setSizeGripEnabled(False)
+        self.statusBar().addWidget(self.count_label, 1)
+        self.statusBar().addPermanentWidget(self.info)
+
+        self.apply_theme()
         self.refresh_all()
+
+    # --- 테마 ---
+
+    def apply_theme(self) -> None:
+        app = QApplication.instance()
+        theme.apply(app, self.mode)
+        c = self.colors = theme.colors(self.mode)
+        dark = self.mode == theme.DARK
+        for act, name in ((self.label_act, "tag"), (self.open_act, "external-link"), (self.delete_act, "trash-2")):
+            act.setIcon(theme.icon(name, c.text))
+        self.sync_act.setIcon(theme.icon("refresh-cw", c.accent_text))
+        self.theme_act.setIcon(theme.icon("sun" if dark else "moon", c.text))
+        self.theme_act.setText("밝게" if dark else "어둡게")
+        self.theme_act.setToolTip("밝은 테마로" if dark else "어두운 테마로")
+        self._search_icon.setIcon(theme.icon("search", c.muted, 16))
+        self.model.clip_icon = theme.icon("paperclip", c.muted, 14, selected=c.accent_text)
+        self.model.muted = QColor(c.muted)
+        self.count_delegate.colors = c
+        # 라벨 트리의 선택 표시는 강조색 대신 옅은 색 (들여쓰기 부분까지 같은 색으로 칠해지게 팔레트로 지정)
+        palette = self.tree.palette()
+        palette.setColor(QPalette.ColorRole.Highlight, QColor(c.select_inactive))
+        palette.setColor(QPalette.ColorRole.HighlightedText, QColor(c.text))
+        self.tree.setPalette(palette)
+        self.preview.set_theme(c, dark)
+        if self.tree.topLevelItemCount():
+            self.refresh_labels()
+        self.table.viewport().update()
+
+    def toggle_theme(self) -> None:
+        self.mode = theme.LIGHT if self.mode == theme.DARK else theme.DARK
+        theme.save_mode(self.settings_path, self.mode)
+        self.apply_theme()
 
     # --- 갱신 ---
 
@@ -424,22 +770,42 @@ class MainWindow(QMainWindow):
         text = f"메일 {self.lib.count():,}건 · 마지막 동기화 {last[:16] if last else '없음'}"
         stale = last is None or (datetime.now() - datetime.fromisoformat(last)).days >= SYNC_WARN_DAYS
         self.info.setText(text)
-        self.info.setStyleSheet("color: #c00; font-weight: bold" if stale else "")
+        self.info.setObjectName("stale" if stale else "")
+        self.info.style().unpolish(self.info)
+        self.info.style().polish(self.info)
         self.info.setToolTip("보존 기간(약 1개월)이 지나기 전에 동기화하세요." if stale else "")
+
+    def _label_icon(self, path: str, has_children: bool):
+        c = self.colors
+        name = _LABEL_ICONS.get(path) or ("folder" if has_children else "tag")
+        return theme.icon(name, c.muted, 16)
 
     def refresh_labels(self) -> None:
         current = self.label_filter
+        c = self.colors
         self.tree.blockSignals(True)
         self.tree.clear()
-        all_item = QTreeWidgetItem([f"전체 메일 ({self.lib.count():,})"])
+        all_item = QTreeWidgetItem(["전체 메일"])
         all_item.setData(0, ROLE_LABEL, ("all", None))
-        none_item = QTreeWidgetItem([f"라벨 없음 ({self.lib.unlabeled_count():,})"])
+        all_item.setData(0, ROLE_COUNT, self.lib.count())
+        all_item.setIcon(0, theme.icon("mails", c.muted, 16))
+        none_item = QTreeWidgetItem(["라벨 없음"])
         none_item.setData(0, ROLE_LABEL, ("none", UNLABELED))
-        self.tree.addTopLevelItem(all_item)
-        self.tree.addTopLevelItem(none_item)
+        none_item.setData(0, ROLE_COUNT, self.lib.unlabeled_count())
+        none_item.setIcon(0, theme.icon("circle-dashed", c.muted, 16))
+        title = QTreeWidgetItem(["라벨"])
+        title.setFlags(Qt.ItemFlag.NoItemFlags)
+        font = QFont(self.tree.font())
+        font.setBold(True)
+        title.setFont(0, font)
+        title.setForeground(0, QColor(c.muted))
+        for item in (all_item, none_item, title):
+            self.tree.addTopLevelItem(item)
         nodes: dict[str, QTreeWidgetItem] = {}
         counts = self.lib.label_counts()  # 그 라벨에 직접 붙은 수 (눌렀을 때 목록에 보이는 수)
         totals = self.lib.tree_counts()  # 하위 라벨 포함
+        parents = {n.rsplit("/", 1)[0] for n in counts if "/" in n}
+        parents |= {"/".join(n.split("/")[:d]) for n in counts for d in range(1, n.count("/") + 1)}
         for name in sorted(counts):
             parts = name.split("/")
             for depth in range(1, len(parts) + 1):
@@ -447,7 +813,9 @@ class MainWindow(QMainWindow):
                 if path in nodes:
                     continue
                 total, own = totals.get(path, 0), counts.get(path, 0)
-                item = QTreeWidgetItem([f"{parts[depth - 1]} ({own:,})"])
+                item = QTreeWidgetItem([parts[depth - 1]])
+                item.setData(0, ROLE_COUNT, own)
+                item.setIcon(0, self._label_icon(path, path in parents))
                 if total != own:
                     item.setToolTip(0, f"이 라벨 {own:,}건 · 하위 라벨 포함 {total:,}건")
                 item.setData(0, ROLE_LABEL, ("label", path))
@@ -470,6 +838,8 @@ class MainWindow(QMainWindow):
         selected = set(self.selected_ids())
         rows = self.lib.search(self.search.text(), self.label_filter)
         self.model.set_rows(rows)
+        # 라벨 하나를 골랐으면 라벨 열은 모두 같은 값이라 숨긴다
+        self.table.setColumnHidden(MailModel.LABEL, self.label_filter not in (ALL,))
         if selected:
             sm = self.table.selectionModel()
             for i, row in enumerate(rows):
@@ -477,6 +847,14 @@ class MainWindow(QMainWindow):
                     sm.select(self.model.index(i, 0), sm.SelectionFlag.Select | sm.SelectionFlag.Rows)
         if not self.selected_ids():
             self.preview.clear()
+        self.count_label.setText(f"{len(rows):,}건" + (" (검색 결과)" if self.search.text().strip() else ""))
+        self._update_actions()
+
+    def _update_actions(self) -> None:
+        n = len(self.selected_ids())
+        self.label_act.setEnabled(n > 0)
+        self.delete_act.setEnabled(n > 0)
+        self.open_act.setEnabled(n == 1)
 
     # --- 선택 ---
 
@@ -492,12 +870,10 @@ class MainWindow(QMainWindow):
         self.refresh_list()
 
     def _mail_selected(self) -> None:
+        self._update_actions()
         ids = self.selected_ids()
         if len(ids) != 1:
-            self.preview.clear()
-            if ids:
-                self.preview.label_btn.setEnabled(True)
-                self.preview.header.setText(f"{len(ids)}건 선택됨")
+            self.preview.clear(f"{len(ids)}건 선택됨" if ids else "")
             return
         mail = self.lib.get(ids[0])
         if mail:
@@ -519,8 +895,8 @@ class MainWindow(QMainWindow):
         ids = self.selected_ids()
         if not ids:
             return
-        btn = self.preview.label_btn
-        self._label_submenu(QMenu(self), ids).exec(btn.mapToGlobal(btn.rect().bottomLeft()))
+        button = self.findChild(QToolBar).widgetForAction(self.label_act)
+        self._label_submenu(QMenu(self), ids).exec(button.mapToGlobal(button.rect().bottomLeft()))
 
     # 화면에서는 메일당 라벨 하나만 다룬다 (사용자 결정 2026-10-15). DB 는 여러 개를 담을 수 있는 구조 그대로.
 
@@ -639,7 +1015,9 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
 
-def run_app(root: Path, make_source: Callable[[], MailSource], log_dir: Path | None) -> int:
+def run_app(
+    root: Path, make_source: Callable[[], MailSource], log_dir: Path | None, settings_path: Path | None = None
+) -> int:
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName("inlook")
     if sys.platform == "win32":
@@ -655,7 +1033,7 @@ def run_app(root: Path, make_source: Callable[[], MailSource], log_dir: Path | N
 
     sys.excepthook = excepthook
     try:
-        window = MainWindow(root, make_source, log_dir)
+        window = MainWindow(root, make_source, log_dir, settings_path)
     except Exception as exc:
         QMessageBox.critical(None, "inlook", f"보존 경로를 열 수 없습니다: {root}\n\n{exc}")
         return 2

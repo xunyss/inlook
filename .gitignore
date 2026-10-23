@@ -16,4 +16,5 @@ logs/
 *.db
 *.sqlite
 config.toml
+settings.json
 tmp-archive/

@@ -10,6 +10,7 @@ from .collect import DEFAULT_MARGIN_DAYS
 from .errors import CODES
 
 LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
+SETTINGS = LOG_DIR.parent / "settings.json"  # 화면 설정 (테마). 저장소에 올리지 않는다
 DEFAULT_ARCHIVE_ROOT = Path("D:/mailbox")
 
 
@@ -98,7 +99,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "app":
         from .ui import run_app
 
-        return run_app(args.archive_root, make_source, LOG_DIR)
+        return run_app(args.archive_root, make_source, LOG_DIR, SETTINGS)
     if args.command == "collect":
         from .collect import run_collect
 

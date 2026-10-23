@@ -37,7 +37,7 @@
 ### 확인 대기·남은 일
 - [ ] `compact.bat` 실행 결과 확인 (dry-run: 609건 비움 가능, 1건은 RTF 형식 메일이라 DB 의 HTML 유지 — 정상). 예상 DB 약 40MB
 - [ ] `repair.bat --dry-run` 결과 확인: 특히 "`.msg` 에 SMTP 주소 없음" 건수. 많으면 다른 방법(주소록 조회 등) 검토
-- [ ] UI 개선: 사용자가 참고할 메일 클라이언트 화면을 찾는 중. 현재 화면은 Qt 기본 위젯 그대로 (Windows 11 스타일에서 선택 줄이 칸마다 따로 칠해짐 등)
+- [ ] UI 개편(2026-10-23) VDI 확인: 맑은 고딕에서 글자 폭·배지·칩 모양, 테마 전환
 - [ ] 회의 요청 메일의 HTML·본문 이미지가 미리보기에 나오는지 VDI 확인 (압축 RTF 해제, `rtfhtml.py`)
 - [ ] 첨부 파일 열기/저장 기능은 아직 없다 (미리보기에 이름만). 필요하면 .msg 의 첨부를 꺼내면 된다 (`msgfile.read_attachments`)
 - [ ] 메일함 보존 기간(약 1개월) 안에 사용자가 주기적으로 동기화해야 한다. 앱은 21일 넘으면 빨간 경고
@@ -163,7 +163,7 @@
   메일만 COM 의 HTMLBody 를 DB 에 남긴다. 기존 DB 는 `compact.bat` 으로 비우고 VACUUM (못 꺼내는 메일은 유지).
   검색은 본문 텍스트(body)로 하므로 영향 없다. `stats.bat` 으로 열별 용량 확인
 - **어두운 테마에서 본문 색 보정** (2026-10-15, 사용자 요청): 짙은 글자색은 밝기를 뒤집어 밝게, 밝은 배경색은 어둡게
-  (`htmlcolor.darken_html`, 색상은 유지 — Outlook 다크 모드와 같은 방식). 미리보기의 ☀ 버튼으로 흰 배경 원본 보기
+  (`htmlcolor.darken_html`, 색상은 유지 — Outlook 다크 모드와 같은 방식). 미리보기의 [원본 색] 버튼으로 흰 배경 원본 보기
 - `library.py` 에 DB 조회·라벨 편집을 모아 Qt 없이 테스트한다. UI 는 pytest-qt offscreen 스모크 테스트
 
 - **첨부 목록에서 본문 이미지 제외, 보낸 사람 SMTP 주소** (2026-10-23, VDI 화면에서 발견):
@@ -171,6 +171,13 @@
   본문 이미지 = 숨김 첨부(PR_ATTACHMENT_HIDDEN) 또는 HTML 이 `cid:` 로 가리키는 첨부 (`msgfile.file_attachment_names`).
   보낸 사람은 COM 의 PropertyAccessor(0x5D01) → 저장한 .msg 의 0x5D01/0x5D02 순. 주소록(GAL) 조회는 하지 않는다.
   기존 DB 는 `repair.bat` (dry-run 먼저). 화면은 '@' 없는 주소를 숨긴다
+
+- **UI 개편** (2026-10-23, 사용자 요청: "조잡해 보인다", 레퍼런스 = 비발디 메일 클라이언트):
+  OS 기본 스타일(Windows 11 은 선택 줄을 칸마다 따로 칠함) 대신 Fusion + 직접 정한 팔레트·스타일시트 (`theme.py`).
+  툴바(동기화·검색·라벨 변경·.msg 열기·삭제·**밝은/어두운 테마 토글**, 선택은 저장소의 `settings.json`, gitignore),
+  라벨 패널 카드·아이콘·건수 배지(한 칸에 그리는 delegate), 목록 날짜 축약(오늘/어제/MM-DD (요일)),
+  미리보기 머리말(이니셜·받는 사람 3명 + '외 N명'·첨부/라벨 칩), 상태 표시줄. 아이콘은 Lucide SVG(ISC) 를 테마 색으로 칠한다.
+  화면은 Mac 에서 offscreen 캡처(`MainWindow.grab()`)로 확인하며 다듬는다
 
 ## .msg 폴더 가져오기 (2026-10-15)
 - 사용자가 예전에 Outlook '다른 이름으로 저장' 으로 받아 둔 .msg 폴더를 inlook 으로 가져온다 (`import.bat <폴더>`, `importer.py`)
