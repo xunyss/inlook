@@ -36,18 +36,19 @@ class Colors:
     select_inactive: str  # 목록에 초점이 없을 때 선택 줄
     danger: str
     paper: str  # 흰 배경 원본 보기의 본문 바탕
+    grid: str  # 목록의 열 구분선 (흐리게)
 
 
 COLORS = {
     LIGHT: Colors(
         window="#e9ecf1", surface="#ffffff", raised="#f1f3f6", border="#dde1e7", text="#1f2329",
         muted="#6b7380", accent="#3d6ee0", accent_text="#ffffff", hover="#eef2f8",
-        select_inactive="#dbe4f8", danger="#d33a3a", paper="#ffffff",
+        select_inactive="#dbe4f8", danger="#d33a3a", paper="#ffffff", grid="#e9ecf0",
     ),
     DARK: Colors(
         window="#15171b", surface="#1e2126", raised="#292d33", border="#30343b", text="#e4e7eb",
         muted="#959ca7", accent="#4c7ced", accent_text="#ffffff", hover="#262a30",
-        select_inactive="#2b3650", danger="#ff6b6b", paper="#ffffff",
+        select_inactive="#2b3650", danger="#ff6b6b", paper="#ffffff", grid="#2a2e34",
     ),
 }
 
@@ -152,7 +153,8 @@ QTableView::item:selected:active {{ background: {c.accent}; color: {c.accent_tex
 QTableView::item:selected:!active {{ background: {c.select_inactive}; color: {c.text}; }}
 QHeaderView {{ background: {c.surface}; border: none; }}
 QHeaderView::section {{ background: {c.surface}; color: {c.muted}; border: none;
-    border-bottom: 1px solid {c.border}; padding: 6px 6px; font-weight: 600; }}
+    border-bottom: 1px solid {c.border}; border-right: 1px solid {c.grid}; padding: 6px 6px; font-weight: 600; }}
+QHeaderView::section:last {{ border-right: none; }}
 
 QLabel#title {{ font-size: 15pt; font-weight: 700; color: {c.text}; }}
 QLabel#sender {{ font-weight: 600; color: {c.text}; }}

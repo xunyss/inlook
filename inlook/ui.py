@@ -189,11 +189,20 @@ class RowDelegate(QStyledItemDelegate):
         super().__init__(table)
         self.table = table
         self.hover = QColor("#eef2f8")
+        self.grid = QColor("#e9ecf0")
 
     def paint(self, painter: QPainter, option, index) -> None:
         selected = bool(option.state & QStyle.StateFlag.State_Selected)
         if index.row() == self.table.hover_row and not selected:
             painter.fillRect(option.rect, self.hover)
+        self._paint_cell(painter, option, index, selected)
+        if index.column() != MailModel.DATE and not selected:  # 열 구분선 (마지막 열 제외)
+            painter.save()
+            painter.setPen(self.grid)
+            painter.drawLine(option.rect.topRight(), option.rect.bottomRight())
+            painter.restore()
+
+    def _paint_cell(self, painter: QPainter, option, index, selected: bool) -> None:
         if index.column() != MailModel.CLIP:
             super().paint(painter, option, index)
             return
@@ -826,6 +835,7 @@ class MainWindow(QMainWindow):
         self.model.muted = QColor(c.muted)
         self.count_delegate.colors = c
         self.row_delegate.hover = QColor(c.hover)
+        self.row_delegate.grid = QColor(c.grid)
         # 라벨 트리의 선택 표시는 강조색 대신 옅은 색 (들여쓰기 부분까지 같은 색으로 칠해지게 팔레트로 지정)
         palette = self.tree.palette()
         palette.setColor(QPalette.ColorRole.Highlight, QColor(c.select_inactive))
