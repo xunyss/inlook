@@ -147,7 +147,6 @@ QTreeView::branch, QTreeView::branch:selected {{ background: transparent; }}
 
 QTableView {{ selection-background-color: {c.accent}; selection-color: {c.accent_text}; }}
 QTableView::item {{ padding: 0 6px; border: none; }}
-QTableView::item:hover {{ background: {c.hover}; }}
 QTableView::item:selected:active {{ background: {c.accent}; color: {c.accent_text}; }}
 QTableView::item:selected:!active {{ background: {c.select_inactive}; color: {c.text}; }}
 QHeaderView {{ background: {c.surface}; border: none; }}

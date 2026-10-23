@@ -162,3 +162,20 @@ def test_multi_select_shows_count(qtbot, window):
     window.table.selectAll()
     assert "106건 선택됨" in window.preview.title.text()
     assert not window.open_act.isEnabled() and window.delete_act.isEnabled()
+
+
+def test_list_headers_and_row_hover(qtbot, window):
+    from PySide6.QtCore import QPointF
+    from PySide6.QtGui import QMouseEvent
+
+    _sync(qtbot, window)
+    headers = [window.model.headerData(i, Qt.Orientation.Horizontal) for i in range(window.model.columnCount())]
+    assert headers == ["보낸 사람", "제목", "라벨", "첨부", "일시"]
+    window.show()
+    y = window.table.rowViewportPosition(3) + 5
+    move = QMouseEvent(QMouseEvent.Type.MouseMove, QPointF(50, y), QPointF(50, y),
+                       Qt.MouseButton.NoButton, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier)
+    window.table.mouseMoveEvent(move)
+    assert window.table.hover_row == 3  # 칸이 아니라 줄 단위
+    window.table.leaveEvent(None)
+    assert window.table.hover_row == -1

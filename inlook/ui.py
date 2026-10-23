@@ -18,7 +18,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, QPoint, QRect, QSize, Qt, QThread, QTimer, QUrl, Signal
-from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont, QFontDatabase, QImage, QKeySequence, QPainter, QPalette, QShortcut, QTextCursor
+from PySide6.QtGui import QAction, QColor, QIcon, QDesktopServices, QFont, QFontDatabase, QImage, QKeySequence, QPainter, QPalette, QShortcut, QTextCursor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -89,7 +89,7 @@ def split_people(text: str) -> list[str]:
 
 
 class MailModel(QAbstractTableModel):
-    HEADERS = ("보낸 사람", "제목", "라벨", "", "받은 시각")
+    HEADERS = ("보낸 사람", "제목", "라벨", "첨부", "일시")  # 보낸 편지함도 있어서 '받은 시각' 이 아니라 '일시'
     SENDER, SUBJECT, LABEL, CLIP, DATE = range(5)
 
     def __init__(self) -> None:
@@ -115,8 +115,8 @@ class MailModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.DisplayRole:
             return self.HEADERS[section]
         if role == Qt.ItemDataRole.TextAlignmentRole:
-            right = section == self.DATE
-            return int((Qt.AlignmentFlag.AlignRight if right else Qt.AlignmentFlag.AlignLeft) | Qt.AlignmentFlag.AlignVCenter)
+            align = {self.DATE: Qt.AlignmentFlag.AlignRight, self.CLIP: Qt.AlignmentFlag.AlignHCenter}
+            return int(align.get(section, Qt.AlignmentFlag.AlignLeft) | Qt.AlignmentFlag.AlignVCenter)
         return None
 
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
@@ -155,6 +155,60 @@ def _menu_text(text: str) -> str:
 
 def _short(label: str) -> str:
     return label.rsplit("/", 1)[-1]
+
+
+class MailTable(QTableView):
+    """마우스가 올라간 줄 전체를 옅게 칠한다 (스타일시트의 :hover 는 칸 하나만 칠해서)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.hover_row = -1
+        self.setMouseTracking(True)
+
+    def _set_hover(self, row: int) -> None:
+        if row != self.hover_row:
+            self.hover_row = row
+            self.viewport().update()
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        self._set_hover(self.rowAt(event.position().toPoint().y()))
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event) -> None:  # noqa: N802
+        self._set_hover(-1)
+        super().leaveEvent(event)
+
+
+class RowDelegate(QStyledItemDelegate):
+    """목록: 마우스가 올라간 줄 배경, 첨부 아이콘은 칸 가운데."""
+
+    def __init__(self, table: MailTable) -> None:
+        super().__init__(table)
+        self.table = table
+        self.hover = QColor("#eef2f8")
+
+    def paint(self, painter: QPainter, option, index) -> None:
+        selected = bool(option.state & QStyle.StateFlag.State_Selected)
+        if index.row() == self.table.hover_row and not selected:
+            painter.fillRect(option.rect, self.hover)
+        if index.column() != MailModel.CLIP:
+            super().paint(painter, option, index)
+            return
+        icon = index.data(Qt.ItemDataRole.DecorationRole)
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        opt.icon = QIcon()
+        opt.features &= ~QStyleOptionViewItem.ViewItemFeature.HasDecoration
+        widget = opt.widget
+        (widget.style() if widget else QApplication.style()).drawControl(
+            QStyle.ControlElement.CE_ItemViewItem, opt, painter, widget
+        )
+        if isinstance(icon, QIcon) and not icon.isNull():
+            size = self.table.iconSize()
+            rect = QRect(0, 0, size.width(), size.height())
+            rect.moveCenter(option.rect.center())
+            mode = QIcon.Mode.Selected if selected and option.state & QStyle.StateFlag.State_Active else QIcon.Mode.Normal
+            icon.paint(painter, rect, Qt.AlignmentFlag.AlignCenter, mode)
 
 
 class CountDelegate(QStyledItemDelegate):
@@ -671,8 +725,10 @@ class MainWindow(QMainWindow):
 
         # 가운데: 목록
         self.model = MailModel()
-        self.table = QTableView()
+        self.table = MailTable()
         self.table.setModel(self.model)
+        self.row_delegate = RowDelegate(self.table)
+        self.table.setItemDelegate(self.row_delegate)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -686,7 +742,7 @@ class MainWindow(QMainWindow):
         header.setHighlightSections(False)
         header.setSectionResizeMode(MailModel.SUBJECT, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(MailModel.CLIP, QHeaderView.ResizeMode.Fixed)
-        for col, width in ((MailModel.SENDER, 170), (MailModel.LABEL, 130), (MailModel.CLIP, 30), (MailModel.DATE, 120)):
+        for col, width in ((MailModel.SENDER, 170), (MailModel.LABEL, 130), (MailModel.CLIP, 44), (MailModel.DATE, 120)):
             self.table.setColumnWidth(col, width)
         self.table.selectionModel().selectionChanged.connect(self._mail_selected)
         self.table.doubleClicked.connect(lambda _: self.open_msg())
@@ -743,6 +799,7 @@ class MainWindow(QMainWindow):
         self.model.clip_icon = theme.icon("paperclip", c.muted, 14, selected=c.accent_text)
         self.model.muted = QColor(c.muted)
         self.count_delegate.colors = c
+        self.row_delegate.hover = QColor(c.hover)
         # 라벨 트리의 선택 표시는 강조색 대신 옅은 색 (들여쓰기 부분까지 같은 색으로 칠해지게 팔레트로 지정)
         palette = self.tree.palette()
         palette.setColor(QPalette.ColorRole.Highlight, QColor(c.select_inactive))
