@@ -2,6 +2,7 @@
 
 - 글자색이 어두우면 밝기를 뒤집어 밝게 (색상은 유지: 짙은 파랑 → 밝은 파랑)
 - 배경색이 밝으면 밝기를 뒤집어 어둡게
+- 테두리 색은 글자색처럼 (검은 표 테두리가 어두운 배경에 묻히지 않게)
 색이 지정되지 않은 글자·배경은 뷰어의 기본값(어두운 배경·밝은 글자)을 따른다.
 """
 
@@ -15,7 +16,10 @@ _TEXT_PROPS = {"color"}
 _BG_PROPS = {"background", "background-color"}
 
 # style 속성·<style> 블록 안의 CSS 선언
-_CSS_DECL = re.compile(r"(?<![\w-])(color|background-color|background)(\s*:\s*)([^;\"'}<>]+)", re.IGNORECASE)
+_CSS_DECL = re.compile(
+    r"(?<![\w-])(color|background-color|background|border(?:-(?:top|right|bottom|left))?(?:-color)?)(\s*:\s*)([^;\"'}<>]+)",
+    re.IGNORECASE,
+)
 # HTML 속성: <font color=..>, <td bgcolor=..>
 _ATTR = re.compile(r"(?<![\w-])(color|bgcolor)(\s*=\s*)([\"']?)([^\"'\s>]+)\3", re.IGNORECASE)
 # CSS 값 안의 색 토큰
@@ -58,7 +62,8 @@ def _adjust_value(value: str, *, text: bool) -> str:
 def darken_html(html: str) -> str:
     def css(m: re.Match) -> str:
         prop = m.group(1).lower()
-        return m.group(1) + m.group(2) + _adjust_value(m.group(3), text=prop in _TEXT_PROPS)
+        text = prop in _TEXT_PROPS or prop.startswith("border")
+        return m.group(1) + m.group(2) + _adjust_value(m.group(3), text=text)
 
     def attr(m: re.Match) -> str:
         text = m.group(1).lower() == "color"

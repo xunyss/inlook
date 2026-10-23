@@ -54,6 +54,8 @@ from PySide6.QtWidgets import (
 from . import theme
 from .collect import run_collect
 from .htmlcolor import darken_html
+from .mailhtml import normalize as normalize_html
+from .mailhtml import shape as html_shape
 from .msgfile import inline_images
 from .library import ALL, UNLABELED, Library, MailRow
 from .source import MailSource
@@ -643,7 +645,8 @@ class Preview(QWidget):
         self.body.setPalette(palette)
         self.body.setStyleSheet(f"background: {base}; color: {text};")
         if mail.html_body:
-            self.body.setHtml(mail.html_body if paper else darken_html(mail.html_body))
+            body = normalize_html(mail.html_body)  # Word·Excel 표 테두리를 Qt 가 읽는 형태로
+            self.body.setHtml(body if paper else darken_html(body))
         else:
             self.body.setPlainText(mail.body)
 
@@ -1007,8 +1010,29 @@ class MainWindow(QMainWindow):
         menu.addSeparator()
         if len(ids) == 1:
             menu.addAction(".msg 열기 (Outlook)", self.open_msg)
+            if self.log_dir is not None:
+                menu.addAction("본문 HTML 구조 저장 (진단용, 내용 제외)", self.save_html_shape)
         menu.addAction(f"삭제 ({len(ids)}건)\tDel", self.delete_selected)
         menu.exec(self.table.viewport().mapToGlobal(pos))
+
+    def save_html_shape(self) -> None:
+        """미리보기 모양이 Outlook 과 다를 때 원인을 찾으려고, 본문 HTML 의 태그·스타일만 남긴 사본을 logs 에 저장한다."""
+        ids = self.selected_ids()
+        mail = self.lib.get(ids[0]) if len(ids) == 1 else None
+        if mail is None:
+            return
+        mail = self.lib.with_html(mail)
+        if not mail.html_body:
+            QMessageBox.information(self, "inlook", "이 메일은 HTML 본문이 없습니다 (텍스트 본문).")
+            return
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+        path = self.log_dir / f"html-shape-{mail.id}.html"
+        path.write_text(html_shape(mail.html_body), encoding="utf-8")
+        QMessageBox.information(
+            self, "inlook",
+            f"저장했습니다:\n{path}\n\n글자는 x 로 바뀌고 링크·이미지 주소·작성자 정보는 지웠습니다.\n"
+            "공유하기 전에 한 번 열어 확인하세요.",
+        )
 
     def delete_selected(self) -> None:
         ids = self.selected_ids()

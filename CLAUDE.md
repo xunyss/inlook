@@ -38,6 +38,7 @@
 - [ ] `compact.bat` 실행 결과 확인 (dry-run: 609건 비움 가능, 1건은 RTF 형식 메일이라 DB 의 HTML 유지 — 정상). 예상 DB 약 40MB
 - [ ] `repair.bat --dry-run` 결과 확인: 특히 "`.msg` 에 SMTP 주소 없음" 건수. 많으면 다른 방법(주소록 조회 등) 검토
 - [ ] UI 개편(2026-10-23) VDI 확인: 맑은 고딕에서 글자 폭·배지·칩 모양, 테마 전환
+- [ ] 표 글자 크기가 Outlook 과 다른 원인: 사용자가 진단용 HTML 구조 파일을 보내 주면 확인
 - [ ] 회의 요청 메일의 HTML·본문 이미지가 미리보기에 나오는지 VDI 확인 (압축 RTF 해제, `rtfhtml.py`)
 - [ ] 첨부 파일 열기/저장 기능은 아직 없다 (미리보기에 이름만). 필요하면 .msg 의 첨부를 꺼내면 된다 (`msgfile.read_attachments`)
 - [ ] 메일함 보존 기간(약 1개월) 안에 사용자가 주기적으로 동기화해야 한다. 앱은 21일 넘으면 빨간 경고
@@ -183,6 +184,12 @@
   `inlook/app.svg` 원본, `app.ico`(16~256px PNG 묶음, 바로가기용)는 그 SVG 로 만든다.
   Windows 는 `SetCurrentProcessExplicitAppUserModelID` 로 작업 표시줄에 Python 대신 inlook 아이콘 (프로세스 한정, 시스템 설정 변경 없음).
   리본 매크로 버튼은 Office 기본 아이콘만 고를 수 있다
+
+- **표 테두리** (2026-10-23, VDI 화면에서 발견): Qt 는 `border: 1px solid black` (굵기 모양 색) 순서만 읽는다.
+  Word(`solid windowtext 1.0pt`)·Excel(`.5pt solid windowtext`) 표기와 시스템 색 `windowtext` 때문에 테두리가 사라졌다.
+  미리보기 때 `mailhtml.normalize` 로 border 선언을 다시 쓴다 (.msg 는 그대로). 다크 테마는 테두리 색도 글자색처럼 밝게.
+  표 글자가 Outlook 보다 작게 보이는 문제는 원인 미확인 → 목록 우클릭 "본문 HTML 구조 저장 (진단용)" (`mailhtml.shape`,
+  글자는 x, 링크·주석·작성자 제거) 결과를 받아서 본다
 
 ## .msg 폴더 가져오기 (2026-10-15)
 - 사용자가 예전에 Outlook '다른 이름으로 저장' 으로 받아 둔 .msg 폴더를 inlook 으로 가져온다 (`import.bat <폴더>`, `importer.py`)
